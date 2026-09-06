@@ -17,6 +17,8 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+      - name: Resolve lockfile
+        run: cargo generate-lockfile
       - name: rustfmt
         run: cargo fmt --all -- --check
       - name: clippy
