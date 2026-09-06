@@ -3,13 +3,13 @@ name = "omnisearch"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.88"
-description = "Unified Model Context Protocol server for multi-provider web, social, and extract search."
+description = "Parallel multi-provider MCP search server: Brave, GitHub, web, social, extract, RRF merge."
 license = "Apache-2.0"
 authors = ["Ravi Tharuma"]
 repository = "https://github.com/RaviTharuma/omnisearch"
 homepage = "https://github.com/RaviTharuma/omnisearch"
 readme = "README.md"
-keywords = ["mcp", "search", "tavily", "exa", "llm"]
+keywords = ["mcp", "search", "brave", "github", "llm"]
 categories = ["command-line-utilities", "web-programming"]
 
 [lib]
