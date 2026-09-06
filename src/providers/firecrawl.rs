@@ -12,7 +12,7 @@ use super::{Provider, hit_from_value};
 
 pub struct Firecrawl {
     http: HttpClient,
-    key: Option<String>,
+    keys: Vec<String>,
     base: String,
 }
 
@@ -20,21 +20,26 @@ impl Firecrawl {
     pub fn new(config: &Config, http: HttpClient) -> Self {
         Self {
             http,
-            key: config.keys.firecrawl.clone(),
+            keys: config.keys.firecrawl.clone(),
             base: config.endpoints.firecrawl.clone(),
         }
     }
 
-    fn key(&self) -> Result<&str> {
-        self.key.as_deref().ok_or_else(|| Error::NotConfigured {
-            provider: "firecrawl".into(),
-            reason: "FIRECRAWL_API_KEY not set".into(),
-        })
+    fn keys(&self) -> &[String] {
+        &self.keys
     }
 
     /// Scrape a single URL to markdown.
     pub async fn scrape(&self, url: &str) -> Result<ExtractedDoc> {
-        let key = self.key()?;
+        crate::try_keys!(
+            self.keys(),
+            "firecrawl",
+            "FIRECRAWL_API_KEY not set",
+            |key| self.scrape_with(key, url).await,
+        )
+    }
+
+    async fn scrape_with(&self, key: &str, url: &str) -> Result<ExtractedDoc> {
         let (_, value) = self
             .http
             .send_json(
@@ -60,7 +65,21 @@ impl Firecrawl {
 
     /// Start a crawl and poll until completion or timeout.
     pub async fn crawl(&self, url: &str, limit: u32, timeout_secs: u64) -> Result<Value> {
-        let key = self.key()?;
+        crate::try_keys!(
+            self.keys(),
+            "firecrawl",
+            "FIRECRAWL_API_KEY not set",
+            |key| self.crawl_with(key, url, limit, timeout_secs).await,
+        )
+    }
+
+    async fn crawl_with(
+        &self,
+        key: &str,
+        url: &str,
+        limit: u32,
+        timeout_secs: u64,
+    ) -> Result<Value> {
         let (_, started) = self
             .http
             .send_json(
@@ -100,7 +119,21 @@ impl Firecrawl {
 
     /// Map site URLs.
     pub async fn map(&self, url: &str, search: Option<&str>, limit: Option<u32>) -> Result<Value> {
-        let key = self.key()?;
+        crate::try_keys!(
+            self.keys(),
+            "firecrawl",
+            "FIRECRAWL_API_KEY not set",
+            |key| self.map_with(key, url, search, limit).await,
+        )
+    }
+
+    async fn map_with(
+        &self,
+        key: &str,
+        url: &str,
+        search: Option<&str>,
+        limit: Option<u32>,
+    ) -> Result<Value> {
         let mut body = json!({ "url": url });
         if let Some(q) = search {
             body["search"] = json!(q);
@@ -128,11 +161,11 @@ impl Provider for Firecrawl {
         ProviderId::Firecrawl
     }
     fn is_configured(&self) -> bool {
-        self.key.is_some()
+        !self.keys.is_empty()
     }
     fn skip_reason(&self) -> Option<String> {
-        self.key
-            .is_none()
+        self.keys
+            .is_empty()
             .then(|| "FIRECRAWL_API_KEY not set".into())
     }
     fn supports_extract(&self) -> bool {
@@ -149,7 +182,29 @@ impl Provider for Firecrawl {
     }
 
     async fn search(&self, request: &ProviderSearchRequest<'_>) -> Result<SearchPage> {
-        let key = self.key()?;
+        crate::try_keys!(
+            &self.keys,
+            "firecrawl",
+            "FIRECRAWL_API_KEY not set",
+            |key| self.search_with(key, request).await,
+        )
+    }
+
+    async fn extract(&self, urls: &[String]) -> Result<Vec<ExtractedDoc>> {
+        let mut out = Vec::new();
+        for url in urls {
+            out.push(self.scrape(url).await?);
+        }
+        Ok(out)
+    }
+}
+
+impl Firecrawl {
+    async fn search_with(
+        &self,
+        key: &str,
+        request: &ProviderSearchRequest<'_>,
+    ) -> Result<SearchPage> {
         let (_, value) = self
             .http
             .send_json(
@@ -200,13 +255,5 @@ impl Provider for Firecrawl {
             next_cursor: None,
             answer: None,
         })
-    }
-
-    async fn extract(&self, urls: &[String]) -> Result<Vec<ExtractedDoc>> {
-        let mut out = Vec::new();
-        for url in urls {
-            out.push(self.scrape(url).await?);
-        }
-        Ok(out)
     }
 }
