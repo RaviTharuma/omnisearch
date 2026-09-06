@@ -39,6 +39,11 @@ pub enum ProviderId {
 }
 
 impl ProviderId {
+    /// First-class providers that always join default parallel fan-out when keyed.
+    pub const fn must_have() -> &'static [Self] {
+        &[Self::Brave, Self::Github]
+    }
+
     /// All built-in provider ids in default fan-out order.
     pub const fn all() -> &'static [Self] {
         &[
@@ -164,6 +169,26 @@ pub enum SearchType {
     Social,
     Scholarly,
     Video,
+    /// GitHub user/org search (`/search/users`).
+    Users,
+}
+
+impl SearchType {
+    /// Parse a search-type token, including GitHub kinds (`repo`, `code`, `users`).
+    pub fn parse(raw: &str) -> crate::error::Result<Self> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "web" | "general" | "repo" | "repos" | "repositories" => Ok(Self::Web),
+            "news" => Ok(Self::News),
+            "code" => Ok(Self::Code),
+            "social" => Ok(Self::Social),
+            "scholarly" | "scholar" | "academic" => Ok(Self::Scholarly),
+            "video" => Ok(Self::Video),
+            "users" | "user" | "people" => Ok(Self::Users),
+            other => Err(crate::error::Error::Invalid(format!(
+                "unknown search_type '{other}'"
+            ))),
+        }
+    }
 }
 
 /// Freshness window.
