@@ -16,8 +16,10 @@ fn base_config(tavily: &str, exa: &str) -> Config {
     config.endpoints.wikipedia = "http://127.0.0.1:9".into();
     config.endpoints.scholar = "http://127.0.0.1:9".into();
     config.endpoints.bluesky = "http://127.0.0.1:9".into();
-    config.keys.tavily = Some("tavily-test".into());
-    config.keys.exa = Some("exa-test".into());
+    config.endpoints.reddit = "http://127.0.0.1:9".into();
+    config.endpoints.reddit_oauth = "http://127.0.0.1:9".into();
+    config.keys.tavily = vec!["tavily-test".into()];
+    config.keys.exa = vec!["exa-test".into()];
     config.cache_ttl_secs = 60;
     config.auto_allow_usd = 1.0;
     config.default_timeout_secs = 5;
@@ -211,4 +213,184 @@ async fn cache_hit_on_second_call() {
     let second = search(&state, req).await;
     assert!(!first.meta.cache_hit);
     assert!(second.meta.cache_hit);
+    assert_eq!(first.meta.stop_reason.as_deref(), Some("complete"));
+    assert!(!first.meta.provider_used.is_empty());
+}
+
+#[tokio::test]
+async fn partial_success_is_not_cached() {
+    let tavily = MockServer::start().await;
+    let exa = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/search"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "results": [{"title":"ok","url":"https://example.com/ok","content":"x"}]
+        })))
+        .expect(2)
+        .mount(&tavily)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/search"))
+        .respond_with(ResponseTemplate::new(500).set_body_string("nope"))
+        .expect(2)
+        .mount(&exa)
+        .await;
+
+    let state = AppState::new(base_config(&tavily.uri(), &exa.uri())).unwrap();
+    let mut req = SearchRequest::new("no-cache-partial");
+    req.providers = Some(vec![ProviderId::Tavily, ProviderId::Exa]);
+    let first = search(&state, req.clone()).await;
+    let second = search(&state, req).await;
+    assert_eq!(
+        first.meta.stop_reason.as_deref(),
+        Some("partial_provider_failure")
+    );
+    assert!(!first.meta.cache_hit);
+    assert!(!second.meta.cache_hit);
+}
+
+#[tokio::test]
+async fn cache_partial_explicit_allow() {
+    let tavily = MockServer::start().await;
+    let exa = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/search"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "results": [{"title":"ok","url":"https://example.com/ok","content":"x"}]
+        })))
+        .expect(1)
+        .mount(&tavily)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/search"))
+        .respond_with(ResponseTemplate::new(500).set_body_string("nope"))
+        .expect(1)
+        .mount(&exa)
+        .await;
+
+    let state = AppState::new(base_config(&tavily.uri(), &exa.uri())).unwrap();
+    let mut req = SearchRequest::new("allow-partial-cache");
+    req.providers = Some(vec![ProviderId::Tavily, ProviderId::Exa]);
+    req.cache_partial = true;
+    let first = search(&state, req.clone()).await;
+    let second = search(&state, req).await;
+    assert!(!first.meta.cache_hit);
+    assert!(second.meta.cache_hit);
+}
+
+#[tokio::test]
+async fn dual_key_failover_on_429() {
+    let tavily = MockServer::start().await;
+    let exa = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/search"))
+        .respond_with(ResponseTemplate::new(429).set_body_string("slow"))
+        .up_to_n_times(1)
+        .mount(&tavily)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/search"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "results": [{"title":"ok","url":"https://example.com/dual","content":"second key"}]
+        })))
+        .mount(&tavily)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/search"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"results":[]})))
+        .mount(&exa)
+        .await;
+
+    let mut config = base_config(&tavily.uri(), &exa.uri());
+    config.keys.tavily = vec!["bad-key".into(), "good-key".into()];
+    let state = AppState::new(config).unwrap();
+    let mut req = SearchRequest::new("dual key");
+    req.providers = Some(vec![ProviderId::Tavily]);
+    req.no_cache = true;
+    let out = search(&state, req).await;
+    assert_eq!(out.meta.successful, vec!["tavily".to_string()]);
+    assert_eq!(out.results.len(), 1);
+    assert!(out.meta.cost_usd > 0.0);
+}
+
+#[tokio::test]
+async fn ladder_skips_paid_when_free_meets_evidence() {
+    let tavily = MockServer::start().await;
+    let exa = MockServer::start().await;
+    let wiki = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/w/api.php"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "query": {"search": [
+                {"title":"Rust","snippet":"systems language"}
+            ]}
+        })))
+        .mount(&wiki)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/search"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "results": [{"title":"paid","url":"https://example.com/paid","content":"no"}]
+        })))
+        .expect(0)
+        .mount(&tavily)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/search"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"results":[]})))
+        .expect(0)
+        .mount(&exa)
+        .await;
+
+    let mut config = base_config(&tavily.uri(), &exa.uri());
+    config.endpoints.wikipedia = wiki.uri();
+    config.auto_allow_usd = 1.0;
+    let state = AppState::new(config).unwrap();
+    let mut req = SearchRequest::new("ladder rust");
+    req.mode = SearchMode::Ladder;
+    req.providers = None;
+    req.evidence_min = Some(1);
+    req.no_cache = true;
+    let out = search(&state, req).await;
+    assert_eq!(out.meta.stop_reason.as_deref(), Some("evidence"));
+    assert!(out.meta.successful.contains(&"wikipedia".to_string()));
+    assert!(
+        !out.meta
+            .successful
+            .iter()
+            .any(|p| p == "tavily" || p == "exa")
+    );
+    assert!(out.results.iter().any(|h| h.confidence.is_some()));
+}
+
+#[tokio::test]
+async fn search_health_reports_requires_key_and_latency() {
+    let tavily = MockServer::start().await;
+    let exa = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/search"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "results": [{"title":"ok","url":"https://example.com/h","content":"x"}]
+        })))
+        .mount(&tavily)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/search"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"results":[]})))
+        .mount(&exa)
+        .await;
+
+    let state = AppState::new(base_config(&tavily.uri(), &exa.uri())).unwrap();
+    let mut req = SearchRequest::new("health");
+    req.providers = Some(vec![ProviderId::Tavily]);
+    req.no_cache = true;
+    let _ = search(&state, req).await;
+    let health = state.search_health();
+    let tavily = health.iter().find(|h| h.id == "tavily").expect("tavily");
+    assert!(tavily.configured);
+    assert!(tavily.requires_key);
+    assert!(tavily.success >= 1);
+    assert!(tavily.last_latency_ms.is_some());
+    let wiki = health.iter().find(|h| h.id == "wikipedia").expect("wiki");
+    assert!(!wiki.requires_key);
 }
