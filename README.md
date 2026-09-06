@@ -1,20 +1,10 @@
 # omnisearch
 
-The search MCP you actually want in an agent: **one tool call, every engine you have keys for, merged and cited.**
+Rust MCP server. Default `search` fans out in parallel to every configured provider, RRF-merges, dedupes by URL/title, and records `sources[]`. `limit` is a per-provider hint. Omit it or set `unlimited: true` to page until exhaustion or 10,000 unique results (`SAFETY_BOUND`). Budgets cap spend, width, and time.
 
-`omnisearch` is a Rust [Model Context Protocol](https://modelcontextprotocol.io) server. It fans out in **parallel** to every configured provider, **RRF-merges** the lists, **dedupes by URL and title**, and keeps `sources[]` so you can see which engines found each hit. There is no tiny “top 5” product cap. `limit` is an optional per-provider hint. Omit it (or set `unlimited: true`) and it pages until providers exhaust or the **10,000 unique-result safety bound**.
-
-Budgets cap **spend, width, and time** — not result quality.
-
-**First-class engines** (always in the default fan-out when keyed): **Brave Search** (`BRAVE_API_KEY`) and **GitHub Search** (`GITHUB_TOKEN` or `GITHUB_API_KEY`) for repositories, code, and users.
+Brave (`BRAVE_API_KEY`) and GitHub (`GITHUB_TOKEN` / `GITHUB_API_KEY`) join the default fan-out when keyed. GitHub covers repositories, code, and users.
 
 Apache-2.0. Copyright 2026 Ravi Tharuma.
-
-## Why this exists
-
-A single search API misses what another engine has. Models guess when they should look. This server makes **multi-engine search the default**, then adds the controls agents need: provenance, partial-success metadata, failover, research (search then extract), freshness, news, locale, cache, spam/diversity, cost gates, and a live health surface.
-
-Set the keys you already have. Missing keys are skipped, not fatal.
 
 ## Install
 
@@ -31,24 +21,6 @@ omnisearch bench --query "rust async"
 ```
 
 Copy `.env.example` to `.env`.
-
-### Claude Desktop
-
-```json
-{
-  "mcpServers": {
-    "omnisearch": {
-      "command": "omnisearch",
-      "env": {
-        "BRAVE_API_KEY": "...",
-        "GITHUB_TOKEN": "...",
-        "TAVILY_API_KEY": "tvly-...",
-        "EXA_API_KEY": "..."
-      }
-    }
-  }
-}
-```
 
 ### Cursor
 
@@ -71,7 +43,7 @@ Copy `.env.example` to `.env`.
 }
 ```
 
-### Any MCP client
+Claude Desktop uses the same `command` / `env` shape without `args`. Any MCP client:
 
 ```json
 {
@@ -82,19 +54,19 @@ Copy `.env.example` to `.env`.
 }
 ```
 
-HTTP (optional):
+HTTP:
 
 ```bash
 AUTH_TOKENS=replace-me OMNISEARCH_HTTP_BIND=127.0.0.1:48731 omnisearch http
 ```
 
-Connect to `http://127.0.0.1:48731/mcp` with `Authorization: Bearer replace-me`. `OMNISEARCH_HTTP_RPM` rate-limits per token.
+`http://127.0.0.1:48731/mcp` with `Authorization: Bearer replace-me`. `OMNISEARCH_HTTP_RPM` rate-limits per token.
 
 ## Tools
 
 | Tool | Purpose |
 | --- | --- |
-| `search` | Parallel fan-out + RRF merge. Default `mode=all`. `auto` = intent + health. `ladder` = free-first then paid. |
+| `search` | Parallel fan-out + RRF. Default `mode=all`. `auto` = intent + health. `ladder` = free-first then paid. |
 | `ai_search` | Answer-oriented subset (Tavily / Kagi / You.com / Exa / Perplexity when configured). |
 | `research` | Search, then extract top URLs under a time budget. |
 | `extract` / `web_extract` | Vendor extract cascade, then SSRF-safe direct fetch. |
@@ -103,9 +75,9 @@ Connect to `http://127.0.0.1:48731/mcp` with `Authorization: Bearer replace-me`.
 | `x_search` `reddit_search` `youtube_search` `instagram_search` `facebook_search` | Official social APIs. |
 | `firecrawl_scrape` `firecrawl_crawl` `firecrawl_map` | Site scrape / crawl / map. |
 | `get_provider_info` | Configured, cost, requires_key, notes. No secrets. |
-| `search_health` | Cooldown, latency, recent errors, requires_key. |
-| `quality_report` | Domain diversity and coverage diagnostics. |
-| `provider_bench` | Latency / error bench across configured engines. |
+| `search_health` | Cooldown, latency, recent errors. |
+| `quality_report` | Domain diversity and coverage. |
+| `provider_bench` | Latency / error bench. |
 
 `search` arguments:
 
@@ -131,9 +103,9 @@ Connect to `http://127.0.0.1:48731/mcp` with `Authorization: Bearer replace-me`.
 }
 ```
 
-Hit shape: `title`, `url`, `snippet`, `provider`, `score?`, `confidence?`, `published_at?`, `sources[]`, `snippet_grounded`.
+Hit: `title`, `url`, `snippet`, `provider`, `score?`, `confidence?`, `published_at?`, `sources[]`, `snippet_grounded`.
 
-Every run reports `selected`, `successful`, `failed`, `timed_out`, `skipped`, `cost_usd`, `provider_used`, `stop_reason`. Partial fan-outs are **not cached** unless `cache_partial` is set.
+Run meta: `selected`, `successful`, `failed`, `timed_out`, `skipped`, `cost_usd`, `provider_used`, `stop_reason`. Partial fan-outs are not cached unless `cache_partial` is set.
 
 ## Providers
 
@@ -141,8 +113,8 @@ Unconfigured engines are skipped. Wikipedia, Semantic Scholar, Bluesky, and Redd
 
 | Provider | Env | Search | Extract | Notes |
 | --- | --- | --- | --- | --- |
-| **Brave (first-class)** | `BRAVE_API_KEY` | yes | — | Web + news. Default fan-out when set. |
-| **GitHub (first-class)** | `GITHUB_TOKEN` or `GITHUB_API_KEY` | yes | — | Repos, code, users. Default fan-out when set. |
+| Brave | `BRAVE_API_KEY` | yes | — | Web + news. Default fan-out when set. |
+| GitHub | `GITHUB_TOKEN` or `GITHUB_API_KEY` | yes | — | Repos, code, users. Default fan-out when set. |
 | Tavily | `TAVILY_API_KEY` | yes | yes | News topic + time_range |
 | Exa | `EXA_API_KEY` | yes | yes | Neural / keyword + `/contents` |
 | Firecrawl | `FIRECRAWL_API_KEY` | yes | yes | scrape / crawl / map |
@@ -167,27 +139,23 @@ Unconfigured engines are skipped. Wikipedia, Semantic Scholar, Bluesky, and Redd
 
 `OMNISEARCH_MCP_BACKENDS=official` attaches remotes that have keys: Tavily, Exa, Firecrawl, Linkup, Kagi, Perplexity.
 
-### Social API limits
+Social API limits: Instagram is hashtag-only (Meta caps unique hashtags 30 / 7 days). Facebook is Pages Search only. X prefers `X_BEARER_TOKEN` on `https://api.x.com/2/tweets/search/recent`.
 
-- **Instagram**: official hashtag search only. Meta caps unique hashtags (30 / 7 days).
-- **Facebook**: official Pages Search only. Graph has no public post keyword search.
-- **X**: prefer `X_BEARER_TOKEN` on `https://api.x.com/2/tweets/search/recent`.
+## Orchestration
 
-## What the orchestrator does
-
-- **Parallel default** — `tokio` join across every configured engine. `mode=ladder` runs free engines first and can stop on `stop_reason=evidence`.
-- **RRF + confidence** — `score += 1 / (k + rank)` (`OMNISEARCH_RRF_K`, default 60), then `confidence = 0.50·RRF + 0.25·recency + 0.25·trust`.
-- **Provenance** — tracking params stripped; `sources[]` lists every contributing engine.
-- **Dual-key failover** — `NAME_2` / `NAME_3` after 429 / 5xx / timeout.
-- **Health cooldown** — 429 / timeouts cool an engine; `mode=auto` skips it.
-- **Grounded snippets** — `ground_top` fetches the top N URLs (SSRF-safe) and reframes the snippet.
-- **Intent routing** — `mode=auto` ranks by recent success and query type (news, code, users, social, scholarly, video).
-- **Cost gates** — `OMNISEARCH_AUTO_ALLOW_USD` skips expensive engines unless listed in `providers[]`.
-- **Cache** — in-process TTL. Partial fan-outs are not cached unless asked. `no_cache: true` bypasses.
-- **Spam / diversity** — drops known shorteners; caps hits per domain, then appends overflow.
-- **Freshness + news + locale** — `day` / `week` / `month` / `year`; defaults `OMNISEARCH_COUNTRY=CH`, `OMNISEARCH_LANGUAGE=de`.
-- **SSRF** — extract/direct-fetch blocks loopback, link-local, private IPs, `file:`, metadata hosts.
-- **Large payloads** — over `OMNISEARCH_INLINE_MAX_BYTES`, results spill to a temp file.
+- Parallel default: `tokio` join across every configured engine. `mode=ladder` runs free engines first and can stop on `stop_reason=evidence`.
+- RRF + confidence: `score += 1 / (k + rank)` (`OMNISEARCH_RRF_K`, default 60), then `confidence = 0.50·RRF + 0.25·recency + 0.25·trust`.
+- Provenance: tracking params stripped; `sources[]` lists every contributing engine.
+- Dual-key failover: `NAME_2` / `NAME_3` after 429 / 5xx / timeout.
+- Health cooldown: 429 / timeouts cool an engine; `mode=auto` skips it.
+- Grounded snippets: `ground_top` fetches the top N URLs (SSRF-safe) and reframes the snippet.
+- Intent routing: `mode=auto` ranks by recent success and query type.
+- Cost gates: `OMNISEARCH_AUTO_ALLOW_USD` skips expensive engines unless listed in `providers[]`.
+- Cache: in-process TTL. Partial fan-outs are not cached unless asked. `no_cache: true` bypasses.
+- Spam / diversity: drops known shorteners; caps hits per domain, then appends overflow.
+- Freshness + news + locale: `day` / `week` / `month` / `year`; defaults `OMNISEARCH_COUNTRY=CH`, `OMNISEARCH_LANGUAGE=de`.
+- SSRF: extract/direct-fetch blocks loopback, link-local, private IPs, `file:`, metadata hosts.
+- Large payloads: over `OMNISEARCH_INLINE_MAX_BYTES`, results spill to a temp file.
 
 ## Development
 
