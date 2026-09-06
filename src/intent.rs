@@ -3,7 +3,6 @@
 use crate::health::HealthBoard;
 use crate::types::{ProviderId, SearchMode, SearchRequest, SearchType};
 
-/// Decide which configured providers to call.
 pub fn select_providers(
     request: &SearchRequest,
     configured: &[ProviderId],
@@ -47,7 +46,6 @@ pub fn sort_ladder(ids: &mut [ProviderId], cost: impl Fn(ProviderId) -> f64) {
     });
 }
 
-/// Map query text and vertical onto a provider subset.
 fn intent_subset(query: &str, vertical: SearchType, configured: &[ProviderId]) -> Vec<ProviderId> {
     let q = query.to_ascii_lowercase();
     let mut want: Vec<ProviderId> = Vec::new();

@@ -16,7 +16,6 @@ struct Stats {
     last_error: Option<String>,
 }
 
-/// Shared health board used by auto routing and failover.
 #[derive(Default)]
 pub struct HealthBoard {
     stats: DashMap<ProviderId, Stats>,
@@ -114,7 +113,6 @@ impl HealthBoard {
     }
 }
 
-/// Raw board numbers before combining with registry metadata.
 #[derive(Debug, Clone, Default)]
 pub struct HealthSnapshot {
     pub success: u64,

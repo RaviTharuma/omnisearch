@@ -5,31 +5,30 @@ use serde_json::{Value, json};
 
 use crate::config::Config;
 use crate::error::{Error, Result};
-use crate::http::{HttpClient, pick_str, result_array};
-use crate::types::{ExtractedDoc, ProviderId, ProviderSearchRequest, SearchHit, SearchPage};
+use crate::http::{HttpClient, pick_str};
+use crate::types::{ExtractedDoc, ProviderId, ProviderSearchRequest, SearchPage};
 
-use super::{Provider, hit_from_value};
+use super::{Keyed, Provider, map_hits, map_rows, page};
 
 pub struct Firecrawl {
-    http: HttpClient,
-    keys: Vec<String>,
-    base: String,
+    inner: Keyed,
 }
 
 impl Firecrawl {
     pub fn new(config: &Config, http: HttpClient) -> Self {
         Self {
-            http,
-            keys: config.keys.firecrawl.clone(),
-            base: config.endpoints.firecrawl.clone(),
+            inner: Keyed::new(
+                http,
+                config.keys.firecrawl.clone(),
+                &config.endpoints.firecrawl,
+            ),
         }
     }
 
     fn keys(&self) -> &[String] {
-        &self.keys
+        &self.inner.keys
     }
 
-    /// Scrape a single URL to markdown.
     pub async fn scrape(&self, url: &str) -> Result<ExtractedDoc> {
         crate::try_keys!(
             self.keys(),
@@ -40,12 +39,14 @@ impl Firecrawl {
     }
 
     async fn scrape_with(&self, key: &str, url: &str) -> Result<ExtractedDoc> {
-        let (_, value) = self
+        let value = self
+            .inner
             .http
-            .send_json(
+            .json(
                 "firecrawl",
-                self.http
-                    .post(&format!("{}/v2/scrape", self.base))
+                self.inner
+                    .http
+                    .post(&self.inner.url("/v2/scrape"))
                     .bearer_auth(key)
                     .json(&json!({ "url": url, "formats": ["markdown"] })),
             )
@@ -80,12 +81,14 @@ impl Firecrawl {
         limit: u32,
         timeout_secs: u64,
     ) -> Result<Value> {
-        let (_, started) = self
+        let started = self
+            .inner
             .http
-            .send_json(
+            .json(
                 "firecrawl",
-                self.http
-                    .post(&format!("{}/v2/crawl", self.base))
+                self.inner
+                    .http
+                    .post(&self.inner.url("/v2/crawl"))
                     .bearer_auth(key)
                     .json(&json!({ "url": url, "limit": limit })),
             )
@@ -94,12 +97,14 @@ impl Firecrawl {
             .ok_or_else(|| Error::provider("firecrawl", "crawl response missing id"))?;
         let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
         loop {
-            let (_, status) = self
+            let status = self
+                .inner
                 .http
-                .send_json(
+                .json(
                     "firecrawl",
-                    self.http
-                        .get(&format!("{}/v2/crawl/{id}", self.base))
+                    self.inner
+                        .http
+                        .get(&self.inner.url(&format!("/v2/crawl/{id}")))
                         .bearer_auth(key),
                 )
                 .await?;
@@ -117,7 +122,6 @@ impl Firecrawl {
         }
     }
 
-    /// Map site URLs.
     pub async fn map(&self, url: &str, search: Option<&str>, limit: Option<u32>) -> Result<Value> {
         crate::try_keys!(
             self.keys(),
@@ -141,17 +145,17 @@ impl Firecrawl {
         if let Some(n) = limit {
             body["limit"] = json!(n);
         }
-        let (_, value) = self
+        self.inner
             .http
-            .send_json(
+            .json(
                 "firecrawl",
-                self.http
-                    .post(&format!("{}/v2/map", self.base))
+                self.inner
+                    .http
+                    .post(&self.inner.url("/v2/map"))
                     .bearer_auth(key)
                     .json(&body),
             )
-            .await?;
-        Ok(value)
+            .await
     }
 }
 
@@ -161,12 +165,10 @@ impl Provider for Firecrawl {
         ProviderId::Firecrawl
     }
     fn is_configured(&self) -> bool {
-        !self.keys.is_empty()
+        self.inner.configured()
     }
     fn skip_reason(&self) -> Option<String> {
-        self.keys
-            .is_empty()
-            .then(|| "FIRECRAWL_API_KEY not set".into())
+        self.inner.skip("FIRECRAWL_API_KEY")
     }
     fn supports_extract(&self) -> bool {
         true
@@ -183,7 +185,7 @@ impl Provider for Firecrawl {
 
     async fn search(&self, request: &ProviderSearchRequest<'_>) -> Result<SearchPage> {
         crate::try_keys!(
-            &self.keys,
+            &self.inner.keys,
             "firecrawl",
             "FIRECRAWL_API_KEY not set",
             |key| self.search_with(key, request).await,
@@ -205,12 +207,14 @@ impl Firecrawl {
         key: &str,
         request: &ProviderSearchRequest<'_>,
     ) -> Result<SearchPage> {
-        let (_, value) = self
+        let value = self
+            .inner
             .http
-            .send_json(
+            .json(
                 "firecrawl",
-                self.http
-                    .post(&format!("{}/v2/search", self.base))
+                self.inner
+                    .http
+                    .post(&self.inner.url("/v2/search"))
                     .bearer_auth(key)
                     .json(&json!({
                         "query": request.query,
@@ -218,42 +222,28 @@ impl Firecrawl {
                     })),
             )
             .await?;
-        let mut hits: Vec<SearchHit> = result_array(&value)
-            .iter()
-            .filter_map(|v| {
-                hit_from_value(
-                    ProviderId::Firecrawl,
-                    v,
-                    &["url"],
-                    &["title"],
-                    &["description", "markdown", "snippet"],
-                    &["publishedTime", "published_at"],
-                    &[],
-                )
-            })
-            .collect();
+        let mut hits = map_hits(
+            ProviderId::Firecrawl,
+            &value,
+            &["url"],
+            &["title"],
+            &["description", "markdown", "snippet"],
+            &["publishedTime", "published_at"],
+            &[],
+        );
         if hits.is_empty()
             && let Some(web) = value.pointer("/data/web").and_then(Value::as_array)
         {
-            hits = web
-                .iter()
-                .filter_map(|v| {
-                    hit_from_value(
-                        ProviderId::Firecrawl,
-                        v,
-                        &["url"],
-                        &["title"],
-                        &["description", "snippet"],
-                        &[],
-                        &[],
-                    )
-                })
-                .collect();
+            hits = map_rows(
+                ProviderId::Firecrawl,
+                web,
+                &["url"],
+                &["title"],
+                &["description", "snippet"],
+                &[],
+                &[],
+            );
         }
-        Ok(SearchPage {
-            hits,
-            next_cursor: None,
-            answer: None,
-        })
+        Ok(page(hits))
     }
 }

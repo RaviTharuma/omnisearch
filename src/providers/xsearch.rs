@@ -52,7 +52,7 @@ impl XSearch {
         if let Some(cursor) = request.cursor {
             builder = builder.query(&[("next_token", cursor)]);
         }
-        let (_, value) = self.http.send_json("x", builder).await?;
+        let value = self.http.json("x", builder).await?;
         let hits = value
             .get("data")
             .and_then(Value::as_array)
@@ -93,9 +93,9 @@ impl XSearch {
         key: &str,
         request: &ProviderSearchRequest<'_>,
     ) -> Result<SearchPage> {
-        let (_, value) = self
+        let value = self
             .http
-            .send_json(
+            .json(
                 "x",
                 self.http
                     .post(&format!("{}/v1/responses", self.xai_base))
