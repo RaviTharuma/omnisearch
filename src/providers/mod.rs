@@ -30,52 +30,43 @@ use async_trait::async_trait;
 
 use crate::config::Config;
 use crate::error::Result;
-use crate::http::HttpClient;
+use crate::http::{HttpClient, pick_str, result_array};
 use crate::types::{
-    ExtractedDoc, ProviderId, ProviderInfo, ProviderSearchRequest, SearchPage, SearchType,
+    ExtractedDoc, ProviderId, ProviderInfo, ProviderSearchRequest, SearchHit, SearchPage,
+    SearchType,
 };
+use serde_json::Value;
 
-/// A search and optional extract backend.
 #[async_trait]
 pub trait Provider: Send + Sync {
-    /// Stable id.
     fn id(&self) -> ProviderId;
-    /// Whether secrets/config are present.
     fn is_configured(&self) -> bool;
-    /// Human reason when not configured.
-    fn skip_reason(&self) -> Option<String>;
-    /// Whether this backend can search.
+    fn skip_reason(&self) -> Option<String> {
+        None
+    }
     fn supports_search(&self) -> bool {
         true
     }
-    /// Whether this backend can extract URLs.
     fn supports_extract(&self) -> bool {
         false
     }
-    /// Approximate USD per search call.
     fn estimated_search_usd(&self) -> f64 {
         0.005
     }
-    /// Provider-native page size ceiling.
     fn max_page_size(&self) -> u32 {
         20
     }
-    /// Extra documentation for get_provider_info.
     fn notes(&self) -> &'static str {
         ""
     }
-    /// Whether a secret is required for this backend to run.
     fn requires_key(&self) -> bool {
         true
     }
-    /// Execute one result page.
     async fn search(&self, request: &ProviderSearchRequest<'_>) -> Result<SearchPage>;
-    /// Extract documents when supported.
     async fn extract(&self, _urls: &[String]) -> Result<Vec<ExtractedDoc>> {
         Ok(Vec::new())
     }
 
-    /// Non-secret metadata.
     fn info(&self) -> ProviderInfo {
         ProviderInfo {
             id: self.id().as_str().to_string(),
@@ -89,13 +80,11 @@ pub trait Provider: Send + Sync {
     }
 }
 
-/// All providers owned by the process.
 pub struct Registry {
     providers: Vec<Arc<dyn Provider>>,
 }
 
 impl Registry {
-    /// Construct every provider from config.
     pub fn new(config: &Config, http: HttpClient) -> Self {
         let mut providers: Vec<Arc<dyn Provider>> = vec![
             Arc::new(tavily::Tavily::new(config, http.clone())),
@@ -127,12 +116,10 @@ impl Registry {
         Self { providers }
     }
 
-    /// Borrow a provider by id.
     pub fn get(&self, id: ProviderId) -> Option<Arc<dyn Provider>> {
         self.providers.iter().find(|p| p.id() == id).cloned()
     }
 
-    /// Configured search providers.
     pub fn configured_search(&self) -> Vec<Arc<dyn Provider>> {
         self.providers
             .iter()
@@ -141,7 +128,6 @@ impl Registry {
             .collect()
     }
 
-    /// Configured extract providers.
     pub fn configured_extract(&self) -> Vec<Arc<dyn Provider>> {
         self.providers
             .iter()
@@ -150,13 +136,40 @@ impl Registry {
             .collect()
     }
 
-    /// Metadata for every provider.
     pub fn infos(&self) -> Vec<ProviderInfo> {
         self.providers.iter().map(|p| p.info()).collect()
     }
 }
 
-/// Map a JSON object onto a unified hit.
+/// HTTP + key ring + overridable base. Shared by keyed vendor adapters.
+pub(crate) struct Keyed {
+    pub http: HttpClient,
+    pub keys: Vec<String>,
+    pub base: String,
+}
+
+impl Keyed {
+    pub fn new(http: HttpClient, keys: Vec<String>, base: impl Into<String>) -> Self {
+        Self {
+            http,
+            keys,
+            base: base.into(),
+        }
+    }
+
+    pub fn url(&self, path: &str) -> String {
+        format!("{}{path}", self.base.trim_end_matches('/'))
+    }
+
+    pub fn configured(&self) -> bool {
+        !self.keys.is_empty()
+    }
+
+    pub fn skip(&self, env: &str) -> Option<String> {
+        self.keys.is_empty().then(|| format!("{env} not set"))
+    }
+}
+
 pub(crate) fn hit_from_value(
     id: ProviderId,
     value: &serde_json::Value,
@@ -178,7 +191,102 @@ pub(crate) fn hit_from_value(
     Some(hit)
 }
 
-/// Preferred page size given a soft limit.
+pub(crate) fn map_hits(
+    id: ProviderId,
+    value: &Value,
+    url_keys: &[&str],
+    title_keys: &[&str],
+    snippet_keys: &[&str],
+    date_keys: &[&str],
+    score_keys: &[&str],
+) -> Vec<SearchHit> {
+    map_rows(
+        id,
+        &result_array(value),
+        url_keys,
+        title_keys,
+        snippet_keys,
+        date_keys,
+        score_keys,
+    )
+}
+
+pub(crate) fn map_rows(
+    id: ProviderId,
+    rows: &[Value],
+    url_keys: &[&str],
+    title_keys: &[&str],
+    snippet_keys: &[&str],
+    date_keys: &[&str],
+    score_keys: &[&str],
+) -> Vec<SearchHit> {
+    rows.iter()
+        .filter_map(|v| {
+            hit_from_value(
+                id,
+                v,
+                url_keys,
+                title_keys,
+                snippet_keys,
+                date_keys,
+                score_keys,
+            )
+        })
+        .collect()
+}
+
+pub(crate) fn page(hits: Vec<SearchHit>) -> SearchPage {
+    SearchPage {
+        hits,
+        next_cursor: None,
+        answer: None,
+    }
+}
+
+pub(crate) fn page_answer(hits: Vec<SearchHit>, answer: Option<String>) -> SearchPage {
+    SearchPage {
+        hits,
+        next_cursor: None,
+        answer,
+    }
+}
+
+pub(crate) fn page_next(hits: Vec<SearchHit>, page_size: u32, next: impl ToString) -> SearchPage {
+    let next_cursor = (hits.len() as u32 >= page_size).then(|| next.to_string());
+    SearchPage {
+        hits,
+        next_cursor,
+        answer: None,
+    }
+}
+
+pub(crate) fn offset(cursor: Option<&str>) -> u32 {
+    cursor.and_then(|value| value.parse().ok()).unwrap_or(0)
+}
+
+pub(crate) fn page_num(cursor: Option<&str>) -> u32 {
+    cursor
+        .and_then(|value| value.parse().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(1)
+}
+
+pub(crate) fn extract_docs(id: ProviderId, value: &Value) -> Vec<ExtractedDoc> {
+    result_array(value)
+        .into_iter()
+        .filter_map(|v| {
+            let url = pick_str(&v, &["url"])?;
+            Some(ExtractedDoc {
+                url,
+                title: pick_str(&v, &["title"]),
+                content: pick_str(&v, &["raw_content", "content", "text", "markdown"])
+                    .unwrap_or_default(),
+                provider: id.as_str().to_string(),
+            })
+        })
+        .collect()
+}
+
 pub fn page_size_for(max: u32, request: &crate::types::SearchRequest) -> u32 {
     match request.limit {
         Some(limit) if !request.wants_unlimited() => max.min(limit.max(1)),
@@ -186,7 +294,6 @@ pub fn page_size_for(max: u32, request: &crate::types::SearchRequest) -> u32 {
     }
 }
 
-/// Freshness query token used by several web APIs.
 pub fn freshness_token(f: Option<crate::types::Freshness>) -> Option<&'static str> {
     f.map(|v| match v {
         crate::types::Freshness::Day => "day",
@@ -196,7 +303,58 @@ pub fn freshness_token(f: Option<crate::types::Freshness>) -> Option<&'static st
     })
 }
 
-/// News vs web hint.
 pub fn is_news(search_type: SearchType) -> bool {
     matches!(search_type, SearchType::News)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn map_hits_and_extract_docs() {
+        let value = json!({
+            "results": [{
+                "url": "https://a.test",
+                "title": "A",
+                "content": "hello",
+                "score": 0.4
+            }]
+        });
+        let hits = map_hits(
+            ProviderId::Tavily,
+            &value,
+            &["url"],
+            &["title"],
+            &["content"],
+            &[],
+            &["score"],
+        );
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].score, Some(0.4));
+        let docs = extract_docs(ProviderId::Tavily, &value);
+        assert_eq!(docs[0].content, "hello");
+    }
+
+    #[test]
+    fn offset_and_page_cursors() {
+        assert_eq!(offset(None), 0);
+        assert_eq!(offset(Some("20")), 20);
+        assert_eq!(page_num(None), 1);
+        assert_eq!(page_num(Some("0")), 1);
+        assert_eq!(page_num(Some("3")), 3);
+        let p = page_next(
+            vec![SearchHit::new(ProviderId::Brave, "t", "https://a", "")],
+            1,
+            "2",
+        );
+        assert_eq!(p.next_cursor.as_deref(), Some("2"));
+    }
+
+    #[test]
+    fn page_without_next_when_short() {
+        let p = page_next(vec![], 5, "2");
+        assert!(p.next_cursor.is_none());
+    }
 }

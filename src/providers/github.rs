@@ -7,22 +7,18 @@ use crate::error::Result;
 use crate::http::{HttpClient, pick_f64, pick_str};
 use crate::types::{ProviderId, ProviderSearchRequest, SearchHit, SearchPage, SearchType};
 
-use super::Provider;
+use super::{Keyed, Provider, page_next, page_num};
 
 const MISSING_KEY: &str = "GITHUB_TOKEN or GITHUB_API_KEY not set";
 
 pub struct Github {
-    http: HttpClient,
-    tokens: Vec<String>,
-    base: String,
+    inner: Keyed,
 }
 
 impl Github {
     pub fn new(config: &Config, http: HttpClient) -> Self {
         Self {
-            http,
-            tokens: config.keys.github.clone(),
-            base: config.endpoints.github.clone(),
+            inner: Keyed::new(http, config.keys.github.clone(), &config.endpoints.github),
         }
     }
 }
@@ -33,10 +29,10 @@ impl Provider for Github {
         ProviderId::Github
     }
     fn is_configured(&self) -> bool {
-        !self.tokens.is_empty()
+        self.inner.configured()
     }
     fn skip_reason(&self) -> Option<String> {
-        self.tokens.is_empty().then(|| MISSING_KEY.into())
+        self.inner.keys.is_empty().then(|| MISSING_KEY.into())
     }
     fn estimated_search_usd(&self) -> f64 {
         0.0
@@ -49,7 +45,7 @@ impl Provider for Github {
     }
 
     async fn search(&self, request: &ProviderSearchRequest<'_>) -> Result<SearchPage> {
-        crate::try_keys!(&self.tokens, "github", MISSING_KEY, |token| self
+        crate::try_keys!(&self.inner.keys, "github", MISSING_KEY, |token| self
             .search_with(token, request)
             .await,)
     }
@@ -61,22 +57,21 @@ impl Github {
         token: &str,
         request: &ProviderSearchRequest<'_>,
     ) -> Result<SearchPage> {
-        let page = request
-            .cursor
-            .and_then(|c| c.parse::<u32>().ok())
-            .unwrap_or(1);
+        let page = page_num(request.cursor);
         let kind = github_kind(request.search_type);
         let accept = if kind == GithubKind::Code {
             "application/vnd.github.text-match+json"
         } else {
             "application/vnd.github+json"
         };
-        let (_, value) = self
+        let value = self
+            .inner
             .http
-            .send_json(
+            .json(
                 "github",
-                self.http
-                    .get(&format!("{}{}", self.base, kind.path()))
+                self.inner
+                    .http
+                    .get(&self.inner.url(kind.path()))
                     .bearer_auth(token)
                     .header("Accept", accept)
                     .header("X-GitHub-Api-Version", "2022-11-28")
@@ -94,16 +89,7 @@ impl Github {
             .flatten()
             .filter_map(|v| map_hit(kind, v))
             .collect::<Vec<_>>();
-        let next = if hits.len() as u32 >= request.page_size.min(100) {
-            Some((page + 1).to_string())
-        } else {
-            None
-        };
-        Ok(SearchPage {
-            hits,
-            next_cursor: next,
-            answer: None,
-        })
+        Ok(page_next(hits, request.page_size.min(100), page + 1))
     }
 }
 
@@ -124,7 +110,6 @@ impl GithubKind {
     }
 }
 
-/// Map a vertical onto a GitHub Search endpoint.
 fn github_kind(search_type: SearchType) -> GithubKind {
     match search_type {
         SearchType::Code => GithubKind::Code,
@@ -133,7 +118,6 @@ fn github_kind(search_type: SearchType) -> GithubKind {
     }
 }
 
-/// Parse `github_search` kind / search_type tokens.
 pub fn parse_kind(kind: Option<&str>) -> SearchType {
     match kind {
         Some(raw) => SearchType::parse(raw).unwrap_or(SearchType::Web),
