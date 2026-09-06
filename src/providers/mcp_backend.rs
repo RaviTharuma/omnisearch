@@ -40,6 +40,9 @@ impl Provider for McpBackends {
     fn estimated_search_usd(&self) -> f64 {
         0.0
     }
+    fn requires_key(&self) -> bool {
+        false
+    }
     fn notes(&self) -> &'static str {
         "Proxies OMNISEARCH_MCP_BACKENDS (name|url|token). Tries MCP tools/call then a JSON {query} POST."
     }

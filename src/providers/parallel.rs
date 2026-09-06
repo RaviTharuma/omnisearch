@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use serde_json::json;
 
 use crate::config::Config;
-use crate::error::{Error, Result};
+use crate::error::Result;
 use crate::http::{HttpClient, result_array};
 use crate::types::{ExtractedDoc, ProviderId, ProviderSearchRequest, SearchPage};
 
@@ -12,7 +12,7 @@ use super::{Provider, hit_from_value};
 
 pub struct Parallel {
     http: HttpClient,
-    key: Option<String>,
+    keys: Vec<String>,
     base: String,
 }
 
@@ -20,7 +20,7 @@ impl Parallel {
     pub fn new(config: &Config, http: HttpClient) -> Self {
         Self {
             http,
-            key: config.keys.parallel.clone(),
+            keys: config.keys.parallel.clone(),
             base: config.endpoints.parallel.clone(),
         }
     }
@@ -32,11 +32,11 @@ impl Provider for Parallel {
         ProviderId::Parallel
     }
     fn is_configured(&self) -> bool {
-        self.key.is_some()
+        !self.keys.is_empty()
     }
     fn skip_reason(&self) -> Option<String> {
-        self.key
-            .is_none()
+        self.keys
+            .is_empty()
             .then(|| "PARALLEL_API_KEY not set".into())
     }
     fn supports_extract(&self) -> bool {
@@ -50,10 +50,24 @@ impl Provider for Parallel {
     }
 
     async fn search(&self, request: &ProviderSearchRequest<'_>) -> Result<SearchPage> {
-        let key = self.key.as_deref().ok_or_else(|| Error::NotConfigured {
-            provider: "parallel".into(),
-            reason: "PARALLEL_API_KEY not set".into(),
-        })?;
+        crate::try_keys!(&self.keys, "parallel", "PARALLEL_API_KEY not set", |key| {
+            self.search_with(key, request).await
+        },)
+    }
+
+    async fn extract(&self, urls: &[String]) -> Result<Vec<ExtractedDoc>> {
+        crate::try_keys!(&self.keys, "parallel", "PARALLEL_API_KEY not set", |key| {
+            self.extract_with(key, urls).await
+        },)
+    }
+}
+
+impl Parallel {
+    async fn search_with(
+        &self,
+        key: &str,
+        request: &ProviderSearchRequest<'_>,
+    ) -> Result<SearchPage> {
         let (_, value) = self
             .http
             .send_json(
@@ -103,11 +117,7 @@ impl Provider for Parallel {
         })
     }
 
-    async fn extract(&self, urls: &[String]) -> Result<Vec<ExtractedDoc>> {
-        let key = self.key.as_deref().ok_or_else(|| Error::NotConfigured {
-            provider: "parallel".into(),
-            reason: "PARALLEL_API_KEY not set".into(),
-        })?;
+    async fn extract_with(&self, key: &str, urls: &[String]) -> Result<Vec<ExtractedDoc>> {
         let (_, value) = self
             .http
             .send_json(

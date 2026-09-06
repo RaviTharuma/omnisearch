@@ -42,6 +42,9 @@ impl Provider for Mastodon {
     fn estimated_search_usd(&self) -> f64 {
         0.0
     }
+    fn requires_key(&self) -> bool {
+        false
+    }
     fn notes(&self) -> &'static str {
         "GET {instance}/api/v2/search. MASTODON_ACCESS_TOKEN optional for authenticated search."
     }

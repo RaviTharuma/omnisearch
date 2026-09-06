@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use serde_json::json;
 
 use crate::config::Config;
-use crate::error::{Error, Result};
+use crate::error::Result;
 use crate::http::{HttpClient, result_array};
 use crate::types::{ExtractedDoc, ProviderId, ProviderSearchRequest, SearchPage};
 
@@ -12,7 +12,7 @@ use super::{Provider, freshness_token, hit_from_value};
 
 pub struct Querit {
     http: HttpClient,
-    key: Option<String>,
+    keys: Vec<String>,
     base: String,
 }
 
@@ -20,7 +20,7 @@ impl Querit {
     pub fn new(config: &Config, http: HttpClient) -> Self {
         Self {
             http,
-            key: config.keys.querit.clone(),
+            keys: config.keys.querit.clone(),
             base: config.endpoints.querit.clone(),
         }
     }
@@ -32,10 +32,12 @@ impl Provider for Querit {
         ProviderId::Querit
     }
     fn is_configured(&self) -> bool {
-        self.key.is_some()
+        !self.keys.is_empty()
     }
     fn skip_reason(&self) -> Option<String> {
-        self.key.is_none().then(|| "QUERIT_API_KEY not set".into())
+        self.keys
+            .is_empty()
+            .then(|| "QUERIT_API_KEY not set".into())
     }
     fn supports_extract(&self) -> bool {
         true
@@ -48,10 +50,24 @@ impl Provider for Querit {
     }
 
     async fn search(&self, request: &ProviderSearchRequest<'_>) -> Result<SearchPage> {
-        let key = self.key.as_deref().ok_or_else(|| Error::NotConfigured {
-            provider: "querit".into(),
-            reason: "QUERIT_API_KEY not set".into(),
-        })?;
+        crate::try_keys!(&self.keys, "querit", "QUERIT_API_KEY not set", |key| {
+            self.search_with(key, request).await
+        })
+    }
+
+    async fn extract(&self, urls: &[String]) -> Result<Vec<ExtractedDoc>> {
+        crate::try_keys!(&self.keys, "querit", "QUERIT_API_KEY not set", |key| {
+            self.extract_with(key, urls).await
+        })
+    }
+}
+
+impl Querit {
+    async fn search_with(
+        &self,
+        key: &str,
+        request: &ProviderSearchRequest<'_>,
+    ) -> Result<SearchPage> {
         let mut body = json!({
             "query": request.query,
             "count": request.page_size,
@@ -99,11 +115,7 @@ impl Provider for Querit {
         })
     }
 
-    async fn extract(&self, urls: &[String]) -> Result<Vec<ExtractedDoc>> {
-        let key = self.key.as_deref().ok_or_else(|| Error::NotConfigured {
-            provider: "querit".into(),
-            reason: "QUERIT_API_KEY not set".into(),
-        })?;
+    async fn extract_with(&self, key: &str, urls: &[String]) -> Result<Vec<ExtractedDoc>> {
         let (_, value) = self
             .http
             .send_json(

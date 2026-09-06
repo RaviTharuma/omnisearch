@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use crate::config::Config;
-use crate::error::{Error, Result};
+use crate::error::Result;
 use crate::http::{HttpClient, pick_str};
 use crate::types::{ProviderId, ProviderSearchRequest, SearchHit, SearchPage};
 
@@ -12,7 +12,7 @@ use super::Provider;
 
 pub struct Youtube {
     http: HttpClient,
-    key: Option<String>,
+    keys: Vec<String>,
     base: String,
 }
 
@@ -20,7 +20,7 @@ impl Youtube {
     pub fn new(config: &Config, http: HttpClient) -> Self {
         Self {
             http,
-            key: config.keys.youtube.clone(),
+            keys: config.keys.youtube.clone(),
             base: config.endpoints.youtube.clone(),
         }
     }
@@ -32,11 +32,11 @@ impl Provider for Youtube {
         ProviderId::Youtube
     }
     fn is_configured(&self) -> bool {
-        self.key.is_some()
+        !self.keys.is_empty()
     }
     fn skip_reason(&self) -> Option<String> {
-        self.key
-            .is_none()
+        self.keys
+            .is_empty()
             .then(|| "YOUTUBE_API_KEY or GOOGLE_API_KEY not set".into())
     }
     fn estimated_search_usd(&self) -> f64 {
@@ -50,10 +50,18 @@ impl Provider for Youtube {
     }
 
     async fn search(&self, request: &ProviderSearchRequest<'_>) -> Result<SearchPage> {
-        let key = self.key.as_deref().ok_or_else(|| Error::NotConfigured {
-            provider: "youtube".into(),
-            reason: "YOUTUBE_API_KEY not set".into(),
-        })?;
+        crate::try_keys!(&self.keys, "youtube", "YOUTUBE_API_KEY not set", |key| self
+            .search_with(key, request)
+            .await,)
+    }
+}
+
+impl Youtube {
+    async fn search_with(
+        &self,
+        key: &str,
+        request: &ProviderSearchRequest<'_>,
+    ) -> Result<SearchPage> {
         let mut builder = self
             .http
             .get(&format!("{}/youtube/v3/search", self.base))
