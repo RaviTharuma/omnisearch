@@ -12,8 +12,8 @@ use super::Provider;
 
 pub struct XSearch {
     http: HttpClient,
-    bearer: Option<String>,
-    xai: Option<String>,
+    bearers: Vec<String>,
+    xai: Vec<String>,
     x_base: String,
     xai_base: String,
 }
@@ -22,7 +22,7 @@ impl XSearch {
     pub fn new(config: &Config, http: HttpClient) -> Self {
         Self {
             http,
-            bearer: config.keys.x_bearer.clone(),
+            bearers: config.keys.x_bearer.clone(),
             xai: config.keys.xai.clone(),
             x_base: config.endpoints.x.clone(),
             xai_base: config.endpoints.xai.clone(),
@@ -30,7 +30,16 @@ impl XSearch {
     }
 
     async fn search_x_api(&self, request: &ProviderSearchRequest<'_>) -> Result<SearchPage> {
-        let token = self.bearer.as_deref().unwrap();
+        crate::try_keys!(&self.bearers, "x", "X_BEARER_TOKEN not set", |token| self
+            .search_x_api_with(token, request)
+            .await,)
+    }
+
+    async fn search_x_api_with(
+        &self,
+        token: &str,
+        request: &ProviderSearchRequest<'_>,
+    ) -> Result<SearchPage> {
         let mut builder = self
             .http
             .get(&format!("{}/2/tweets/search/recent", self.x_base))
@@ -74,7 +83,16 @@ impl XSearch {
     }
 
     async fn search_xai(&self, request: &ProviderSearchRequest<'_>) -> Result<SearchPage> {
-        let key = self.xai.as_deref().unwrap();
+        crate::try_keys!(&self.xai, "x", "XAI_API_KEY not set", |key| {
+            self.search_xai_with(key, request).await
+        })
+    }
+
+    async fn search_xai_with(
+        &self,
+        key: &str,
+        request: &ProviderSearchRequest<'_>,
+    ) -> Result<SearchPage> {
         let (_, value) = self
             .http
             .send_json(
@@ -136,7 +154,7 @@ impl Provider for XSearch {
         ProviderId::X
     }
     fn is_configured(&self) -> bool {
-        self.bearer.is_some() || self.xai.is_some()
+        !self.bearers.is_empty() || !self.xai.is_empty()
     }
     fn skip_reason(&self) -> Option<String> {
         if self.is_configured() {
@@ -146,7 +164,7 @@ impl Provider for XSearch {
         }
     }
     fn estimated_search_usd(&self) -> f64 {
-        if self.bearer.is_some() { 0.0 } else { 0.02 }
+        if self.bearers.is_empty() { 0.02 } else { 0.0 }
     }
     fn max_page_size(&self) -> u32 {
         100
@@ -156,10 +174,10 @@ impl Provider for XSearch {
     }
 
     async fn search(&self, request: &ProviderSearchRequest<'_>) -> Result<SearchPage> {
-        if self.bearer.is_some() {
+        if !self.bearers.is_empty() {
             return self.search_x_api(request).await;
         }
-        if self.xai.is_some() {
+        if !self.xai.is_empty() {
             return self.search_xai(request).await;
         }
         Err(Error::NotConfigured {

@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use crate::config::Config;
-use crate::error::{Error, Result};
+use crate::error::Result;
 use crate::http::{HttpClient, pick_str};
 use crate::types::{ExtractedDoc, Freshness, ProviderId, ProviderSearchRequest, SearchPage};
 
@@ -12,7 +12,7 @@ use super::{Provider, hit_from_value};
 
 pub struct YouCom {
     http: HttpClient,
-    key: Option<String>,
+    keys: Vec<String>,
     base: String,
 }
 
@@ -20,7 +20,7 @@ impl YouCom {
     pub fn new(config: &Config, http: HttpClient) -> Self {
         Self {
             http,
-            key: config.keys.youcom.clone(),
+            keys: config.keys.youcom.clone(),
             base: config.endpoints.youcom.clone(),
         }
     }
@@ -32,11 +32,11 @@ impl Provider for YouCom {
         ProviderId::Youcom
     }
     fn is_configured(&self) -> bool {
-        self.key.is_some()
+        !self.keys.is_empty()
     }
     fn skip_reason(&self) -> Option<String> {
-        self.key
-            .is_none()
+        self.keys
+            .is_empty()
             .then(|| "YOU_API_KEY or YDC_API_KEY not set".into())
     }
     fn supports_extract(&self) -> bool {
@@ -53,10 +53,24 @@ impl Provider for YouCom {
     }
 
     async fn search(&self, request: &ProviderSearchRequest<'_>) -> Result<SearchPage> {
-        let key = self.key.as_deref().ok_or_else(|| Error::NotConfigured {
-            provider: "youcom".into(),
-            reason: "YOU_API_KEY not set".into(),
-        })?;
+        crate::try_keys!(&self.keys, "youcom", "YOU_API_KEY not set", |key| {
+            self.search_with(key, request).await
+        })
+    }
+
+    async fn extract(&self, urls: &[String]) -> Result<Vec<ExtractedDoc>> {
+        crate::try_keys!(&self.keys, "youcom", "YOU_API_KEY not set", |key| {
+            self.extract_with(key, urls).await
+        })
+    }
+}
+
+impl YouCom {
+    async fn search_with(
+        &self,
+        key: &str,
+        request: &ProviderSearchRequest<'_>,
+    ) -> Result<SearchPage> {
         let freshness = request.freshness.map(|f| match f {
             Freshness::Day => "day",
             Freshness::Week => "week",
@@ -118,11 +132,7 @@ impl Provider for YouCom {
         })
     }
 
-    async fn extract(&self, urls: &[String]) -> Result<Vec<ExtractedDoc>> {
-        let key = self.key.as_deref().ok_or_else(|| Error::NotConfigured {
-            provider: "youcom".into(),
-            reason: "YOU_API_KEY not set".into(),
-        })?;
+    async fn extract_with(&self, key: &str, urls: &[String]) -> Result<Vec<ExtractedDoc>> {
         let mut docs = Vec::new();
         for url in urls {
             let (_, value) = self
