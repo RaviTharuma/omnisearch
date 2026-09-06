@@ -1,0 +1,417 @@
+//! Shared request/response types and provider identifiers.
+
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+
+/// Hard safety bound on unique merged results. Not a product default cap.
+pub const SAFETY_BOUND: usize = 10_000;
+
+/// Default Reciprocal Rank Fusion constant.
+pub const DEFAULT_RRF_K: f64 = 60.0;
+
+/// Identifiers for every built-in provider.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderId {
+    Tavily,
+    Exa,
+    Firecrawl,
+    Linkup,
+    Brave,
+    Kagi,
+    Github,
+    X,
+    Reddit,
+    Youtube,
+    Instagram,
+    Facebook,
+    Youcom,
+    Parallel,
+    Querit,
+    Tinyfish,
+    Keenable,
+    Wikipedia,
+    Scholar,
+    Mastodon,
+    Bluesky,
+    McpBackend,
+}
+
+impl ProviderId {
+    /// All built-in provider ids in default fan-out order.
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::Tavily,
+            Self::Exa,
+            Self::Firecrawl,
+            Self::Linkup,
+            Self::Brave,
+            Self::Kagi,
+            Self::Youcom,
+            Self::Parallel,
+            Self::Querit,
+            Self::Tinyfish,
+            Self::Keenable,
+            Self::Github,
+            Self::Reddit,
+            Self::X,
+            Self::Youtube,
+            Self::Instagram,
+            Self::Facebook,
+            Self::Wikipedia,
+            Self::Scholar,
+            Self::Mastodon,
+            Self::Bluesky,
+            Self::McpBackend,
+        ]
+    }
+
+    /// Stable wire name.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Tavily => "tavily",
+            Self::Exa => "exa",
+            Self::Firecrawl => "firecrawl",
+            Self::Linkup => "linkup",
+            Self::Brave => "brave",
+            Self::Kagi => "kagi",
+            Self::Github => "github",
+            Self::X => "x",
+            Self::Reddit => "reddit",
+            Self::Youtube => "youtube",
+            Self::Instagram => "instagram",
+            Self::Facebook => "facebook",
+            Self::Youcom => "youcom",
+            Self::Parallel => "parallel",
+            Self::Querit => "querit",
+            Self::Tinyfish => "tinyfish",
+            Self::Keenable => "keenable",
+            Self::Wikipedia => "wikipedia",
+            Self::Scholar => "scholar",
+            Self::Mastodon => "mastodon",
+            Self::Bluesky => "bluesky",
+            Self::McpBackend => "mcp_backend",
+        }
+    }
+
+    /// Parse a user-facing provider name, including aliases.
+    pub fn parse(raw: &str) -> crate::error::Result<Self> {
+        let key = raw.trim().to_ascii_lowercase();
+        let id = match key.as_str() {
+            "tavily" => Self::Tavily,
+            "exa" => Self::Exa,
+            "firecrawl" => Self::Firecrawl,
+            "linkup" => Self::Linkup,
+            "brave" => Self::Brave,
+            "kagi" => Self::Kagi,
+            "github" | "gh" => Self::Github,
+            "x" | "xsearch" | "twitter" => Self::X,
+            "reddit" => Self::Reddit,
+            "youtube" | "yt" => Self::Youtube,
+            "instagram" | "ig" => Self::Instagram,
+            "facebook" | "fb" | "meta" => Self::Facebook,
+            "youcom" | "you" | "you.com" => Self::Youcom,
+            "parallel" | "parallel.ai" => Self::Parallel,
+            "querit" => Self::Querit,
+            "tinyfish" => Self::Tinyfish,
+            "keenable" => Self::Keenable,
+            "wikipedia" | "wiki" => Self::Wikipedia,
+            "scholar" | "semantic_scholar" | "semanticscholar" => Self::Scholar,
+            "mastodon" => Self::Mastodon,
+            "bluesky" | "bsky" => Self::Bluesky,
+            "mcp_backend" | "mcp" | "backend" => Self::McpBackend,
+            other => {
+                return Err(crate::error::Error::Invalid(format!(
+                    "unknown provider '{other}'"
+                )));
+            }
+        };
+        Ok(id)
+    }
+}
+
+impl std::fmt::Display for ProviderId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// How the orchestrator selects providers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SearchMode {
+    /// Fan out to every configured (and allowed) provider. Default.
+    #[default]
+    All,
+    /// Query-intent plus health-based subset.
+    Auto,
+}
+
+/// Search vertical.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SearchType {
+    #[default]
+    Web,
+    News,
+    Code,
+    Social,
+    Scholarly,
+    Video,
+}
+
+/// Freshness window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Freshness {
+    Day,
+    Week,
+    Month,
+    Year,
+}
+
+impl Freshness {
+    /// Parse a freshness token.
+    pub fn parse(raw: &str) -> crate::error::Result<Self> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "day" | "d" | "pd" => Ok(Self::Day),
+            "week" | "w" | "pw" => Ok(Self::Week),
+            "month" | "m" | "pm" => Ok(Self::Month),
+            "year" | "y" | "py" => Ok(Self::Year),
+            other => Err(crate::error::Error::Invalid(format!(
+                "unknown freshness '{other}'"
+            ))),
+        }
+    }
+
+    /// Approximate lower bound timestamp (RFC3339) relative to now.
+    pub fn since_rfc3339(self) -> String {
+        let days = match self {
+            Self::Day => 1,
+            Self::Week => 7,
+            Self::Month => 31,
+            Self::Year => 365,
+        };
+        (chrono::Utc::now() - chrono::Duration::days(days)).to_rfc3339()
+    }
+}
+
+/// One unified search hit.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct SearchHit {
+    pub title: String,
+    pub url: String,
+    pub snippet: String,
+    pub provider: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub score: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub published_at: Option<String>,
+    /// Providers that contributed this URL after RRF merge.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sources: Vec<String>,
+}
+
+impl SearchHit {
+    /// Construct a hit with a single originating provider.
+    pub fn new(
+        provider: ProviderId,
+        title: impl Into<String>,
+        url: impl Into<String>,
+        snippet: impl Into<String>,
+    ) -> Self {
+        let provider = provider.as_str().to_string();
+        Self {
+            title: title.into(),
+            url: url.into(),
+            snippet: snippet.into(),
+            sources: vec![provider.clone()],
+            provider,
+            score: None,
+            published_at: None,
+        }
+    }
+}
+
+/// Extracted page content.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct ExtractedDoc {
+    pub url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    pub content: String,
+    pub provider: String,
+}
+
+/// One page of provider results.
+#[derive(Debug, Clone, Default)]
+pub struct SearchPage {
+    pub hits: Vec<SearchHit>,
+    pub next_cursor: Option<String>,
+    pub answer: Option<String>,
+}
+
+/// Orchestrator request.
+#[derive(Debug, Clone)]
+pub struct SearchRequest {
+    pub query: String,
+    pub providers: Option<Vec<ProviderId>>,
+    pub limit: Option<u32>,
+    pub unlimited: bool,
+    pub mode: SearchMode,
+    pub search_type: SearchType,
+    pub freshness: Option<Freshness>,
+    pub country: Option<String>,
+    pub language: Option<String>,
+    pub max_providers: Option<usize>,
+    pub timeout_seconds: Option<u64>,
+    pub budget_usd: Option<f64>,
+    pub no_cache: bool,
+    pub include_quality_report: bool,
+}
+
+impl SearchRequest {
+    /// Build a query-only request using product defaults (parallel, unlimited).
+    pub fn new(query: impl Into<String>) -> Self {
+        Self {
+            query: query.into(),
+            providers: None,
+            limit: None,
+            unlimited: true,
+            mode: SearchMode::All,
+            search_type: SearchType::Web,
+            freshness: None,
+            country: None,
+            language: None,
+            max_providers: None,
+            timeout_seconds: None,
+            budget_usd: None,
+            no_cache: false,
+            include_quality_report: false,
+        }
+    }
+
+    /// True when callers asked to page until exhaustion.
+    pub fn wants_unlimited(&self) -> bool {
+        self.unlimited || self.limit.is_none()
+    }
+}
+
+/// Per-provider search page request.
+#[derive(Debug, Clone)]
+pub struct ProviderSearchRequest<'a> {
+    pub query: &'a str,
+    pub cursor: Option<&'a str>,
+    pub page_size: u32,
+    pub search_type: SearchType,
+    pub freshness: Option<Freshness>,
+    pub country: &'a str,
+    pub language: &'a str,
+}
+
+/// Partial-success bookkeeping.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default, PartialEq)]
+pub struct RunMeta {
+    pub selected: Vec<String>,
+    pub successful: Vec<String>,
+    pub failed: Vec<ProviderFailure>,
+    pub timed_out: Vec<String>,
+    pub skipped: Vec<ProviderSkip>,
+    pub cache_hit: bool,
+    pub truncated: bool,
+    pub safety_bound: u32,
+    pub rrf_k: f64,
+    pub estimated_cost_usd: f64,
+    pub elapsed_ms: u64,
+}
+
+/// Provider that was selected but returned an error.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct ProviderFailure {
+    pub provider: String,
+    pub error: String,
+}
+
+/// Provider that was not called.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct ProviderSkip {
+    pub provider: String,
+    pub reason: String,
+}
+
+/// Diagnostics for a result set.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct QualityReport {
+    pub unique_results: u32,
+    pub unique_domains: u32,
+    pub providers_contributing: u32,
+    pub with_published_at: u32,
+    pub spam_dropped: u32,
+    pub top_domains: Vec<DomainCount>,
+}
+
+/// Domain frequency.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct DomainCount {
+    pub domain: String,
+    pub count: u32,
+}
+
+/// Unified search response.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct SearchResponse {
+    pub query: String,
+    pub results: Vec<SearchHit>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub answer: Option<String>,
+    pub unique_count: u32,
+    pub meta: RunMeta,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quality_report: Option<QualityReport>,
+    /// When the payload is large, results may be stored on disk.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delivery: Option<Delivery>,
+}
+
+/// Inline vs file delivery.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct Delivery {
+    pub mode: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    pub bytes: u64,
+}
+
+/// Non-secret provider metadata.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ProviderInfo {
+    pub id: String,
+    pub configured: bool,
+    pub search: bool,
+    pub extract: bool,
+    pub estimated_search_usd: f64,
+    pub notes: String,
+}
+
+/// Extract request.
+#[derive(Debug, Clone)]
+pub struct ExtractRequest {
+    pub urls: Vec<String>,
+    pub providers: Option<Vec<ProviderId>>,
+    pub timeout_seconds: Option<u64>,
+}
+
+/// Extract response.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ExtractResponse {
+    pub documents: Vec<ExtractedDoc>,
+    pub meta: RunMeta,
+}
+
+/// Research-mode response.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ResearchResponse {
+    pub search: SearchResponse,
+    pub extracts: Vec<ExtractedDoc>,
+    pub extract_budget_seconds: u64,
+}
