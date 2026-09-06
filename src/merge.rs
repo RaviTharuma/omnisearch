@@ -104,10 +104,82 @@ pub fn rrf_merge(lists: Vec<Vec<SearchHit>>, k: f64, max_per_domain: usize) -> M
         top_domains,
     };
 
+    let mut hits = diversified;
+    blend_after_rrf(&mut hits);
+
     MergeOutput {
-        hits: diversified,
+        hits,
         quality: report,
     }
+}
+
+/// Lightweight confidence = 0.50·RRF + 0.25·recency + 0.25·trust.
+pub fn blend_after_rrf(hits: &mut [SearchHit]) {
+    let max_rrf = {
+        let n = hits.iter().filter_map(|h| h.score).fold(0.0_f64, f64::max);
+        if n > 0.0 { n } else { 1e-9 }
+    };
+    for hit in hits.iter_mut() {
+        let rrf = hit.score.unwrap_or(0.0) / max_rrf;
+        let recency = recency_score(hit.published_at.as_deref());
+        let trust = trust_score(hit);
+        hit.confidence = Some((0.50 * rrf + 0.25 * recency + 0.25 * trust).clamp(0.0, 1.0));
+    }
+}
+
+fn recency_score(published: Option<&str>) -> f64 {
+    let Some(raw) = published else {
+        return 0.5;
+    };
+    let Some(dt) = parse_published(raw) else {
+        return 0.5;
+    };
+    let age = (chrono::Utc::now() - dt).num_days();
+    if age <= 7 {
+        1.0
+    } else if age <= 30 {
+        0.75
+    } else if age <= 180 {
+        0.5
+    } else if age <= 365 {
+        0.35
+    } else {
+        0.2
+    }
+}
+
+fn parse_published(raw: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+    chrono::DateTime::parse_from_rfc3339(raw)
+        .ok()
+        .map(|d| d.with_timezone(&chrono::Utc))
+        .or_else(|| {
+            chrono::NaiveDate::parse_from_str(raw, "%Y-%m-%d")
+                .ok()
+                .and_then(|d| d.and_hms_opt(0, 0, 0))
+                .map(|dt| {
+                    chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(dt, chrono::Utc)
+                })
+        })
+}
+
+fn trust_score(hit: &SearchHit) -> f64 {
+    let mut score: f64 = 0.30;
+    if hit.sources.len() >= 2 {
+        score += 0.40;
+    } else if !hit.sources.is_empty() {
+        score += 0.10;
+    }
+    if let Some(host) = host_of(&hit.url)
+        && (host.ends_with(".gov")
+            || host.ends_with(".edu")
+            || host.ends_with(".int")
+            || host.ends_with("wikipedia.org")
+            || host.ends_with("semanticscholar.org")
+            || host.ends_with("europa.eu"))
+    {
+        score += 0.30;
+    }
+    score.min(1.0)
 }
 
 /// Merge result plus diagnostics.
@@ -239,6 +311,31 @@ mod tests {
         assert!(merged.sources.contains(&"tavily".into()));
         assert!(merged.sources.contains(&"exa".into()));
         assert!(merged.score.unwrap() > 0.0);
+        assert!(merged.confidence.unwrap() > 0.0);
+    }
+
+    #[test]
+    fn trust_boosts_multi_source_and_edu() {
+        let mut hits = vec![
+            SearchHit::new(
+                crate::types::ProviderId::Tavily,
+                "Paper",
+                "https://ethz.edu/a",
+                "x",
+            ),
+            SearchHit::new(
+                crate::types::ProviderId::Brave,
+                "Blog",
+                "https://random-blog.example/a",
+                "y",
+            ),
+        ];
+        hits[0].sources = vec!["tavily".into(), "exa".into()];
+        hits[0].score = Some(0.02);
+        hits[1].score = Some(0.02);
+        hits[0].published_at = Some(chrono::Utc::now().to_rfc3339());
+        blend_after_rrf(&mut hits);
+        assert!(hits[0].confidence.unwrap() > hits[1].confidence.unwrap());
     }
 
     #[test]
