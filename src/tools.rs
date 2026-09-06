@@ -35,12 +35,18 @@ impl OmniServer {
         }
     }
 
-    fn search_request(params: SearchParams) -> Result<SearchRequest, ErrorData> {
+    fn search_request(
+        params: SearchParams,
+        default_mode: SearchMode,
+    ) -> Result<SearchRequest, ErrorData> {
         if params.query.trim().is_empty() {
             return Err(Error::Invalid("query is required".into()).to_mcp());
         }
         let mode = match params.mode.as_deref() {
             Some("auto") => SearchMode::Auto,
+            Some("ladder") | Some("free_first") | Some("free-first") => SearchMode::Ladder,
+            Some("all") => SearchMode::All,
+            None => default_mode,
             _ => SearchMode::All,
         };
         let search_type = match params.search_type.as_deref() {
@@ -71,7 +77,10 @@ impl OmniServer {
             timeout_seconds: params.timeout_seconds,
             budget_usd: params.budget_usd,
             no_cache: params.no_cache.unwrap_or(false),
+            cache_partial: params.cache_partial.unwrap_or(false),
             include_quality_report: params.quality_report.unwrap_or(false),
+            ground_top: params.ground_top,
+            evidence_min: params.evidence_min,
         })
     }
 }
@@ -86,7 +95,7 @@ pub struct SearchParams {
     pub limit: Option<u32>,
     /// Page until providers exhaust (still bounded by the safety bound).
     pub unlimited: Option<bool>,
-    /// `all` (default) or `auto` (intent + health).
+    /// `all` (default parallel), `auto` (intent + health), or `ladder` (free-first).
     pub mode: Option<String>,
     /// `web`, `news`, `code`, `social`, `scholarly`, `video`.
     pub search_type: Option<String>,
@@ -98,7 +107,13 @@ pub struct SearchParams {
     pub timeout_seconds: Option<u64>,
     pub budget_usd: Option<f64>,
     pub no_cache: Option<bool>,
+    /// Cache even if some selected providers failed.
+    pub cache_partial: Option<bool>,
     pub quality_report: Option<bool>,
+    /// Fetch and rewrite snippets for the top N hits (SSRF-safe).
+    pub ground_top: Option<u32>,
+    /// Ladder stop: unique hits needed before skipping remaining paid providers.
+    pub evidence_min: Option<u32>,
 }
 
 /// Provider-specific search.
@@ -177,7 +192,7 @@ impl OmniServer {
         &self,
         Parameters(params): Parameters<SearchParams>,
     ) -> Result<Json<Value>, ErrorData> {
-        let req = Self::search_request(params)?;
+        let req = Self::search_request(params, self.state.config.default_mode)?;
         let out = search(&self.state, req).await;
         to_json(&out)
     }
@@ -300,13 +315,14 @@ impl OmniServer {
         &self,
         Parameters(params): Parameters<SearchParams>,
     ) -> Result<Json<Value>, ErrorData> {
-        let mut req = Self::search_request(params)?;
+        let mut req = Self::search_request(params, self.state.config.default_mode)?;
         if req.providers.is_none() {
             req.providers = Some(vec![
                 ProviderId::Tavily,
                 ProviderId::Kagi,
                 ProviderId::Youcom,
                 ProviderId::Exa,
+                ProviderId::Perplexity,
             ]);
         }
         to_json(&search(&self.state, req).await)
@@ -447,13 +463,21 @@ impl OmniServer {
         to_json(&self.state.registry.infos())
     }
 
+    /// Live provider health: configured, cooldown, latency, errors, requires_key.
+    #[tool(
+        description = "Live provider health: configured, cooldown, recent latency/errors, requires_key. Never returns secrets."
+    )]
+    pub async fn search_health(&self) -> Result<Json<Value>, ErrorData> {
+        to_json(&self.state.search_health())
+    }
+
     /// Quality diagnostics for a fresh search.
     #[tool(description = "Run a search and return the quality_report plus meta.")]
     pub async fn quality_report(
         &self,
         Parameters(params): Parameters<SearchParams>,
     ) -> Result<Json<Value>, ErrorData> {
-        let mut req = Self::search_request(params)?;
+        let mut req = Self::search_request(params, self.state.config.default_mode)?;
         req.include_quality_report = true;
         let out = search(&self.state, req).await;
         to_json(&serde_json::json!({
@@ -500,7 +524,7 @@ fn to_json<T: Serialize>(value: &T) -> Result<Json<Value>, ErrorData> {
 #[tool_handler(
     name = "omnisearch",
     version = "0.1.0",
-    instructions = "Unified multi-provider search MCP. Call search for parallel fan-out, then RRF merge. Use research for search+extract. Use get_provider_info to see which keys are present."
+    instructions = "Unified multi-provider search MCP. Call search for parallel fan-out, then RRF merge. Use research for search+extract. Use search_health and get_provider_info for non-secret status."
 )]
 impl ServerHandler for OmniServer {
     fn get_info(&self) -> ServerInfo {
