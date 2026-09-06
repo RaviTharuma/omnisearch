@@ -5,7 +5,6 @@ use std::env;
 use crate::keys::{GITHUB_KEY_NAMES, env_key_ring, env_key_rings};
 use crate::types::{DEFAULT_RRF_K, SAFETY_BOUND, SearchMode};
 
-/// Process configuration loaded from the environment.
 #[derive(Debug, Clone)]
 pub struct Config {
     pub user_agent: String,
@@ -35,7 +34,6 @@ pub struct Config {
     pub keenable_title: String,
 }
 
-/// Downstream MCP search backend.
 #[derive(Debug, Clone)]
 pub struct McpBackend {
     pub name: String,
@@ -228,7 +226,6 @@ impl Config {
     }
 }
 
-/// Environment string or default.
 fn env_or(name: &str, default: &str) -> String {
     env::var(name)
         .ok()

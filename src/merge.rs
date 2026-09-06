@@ -182,7 +182,6 @@ fn trust_score(hit: &SearchHit) -> f64 {
     score.min(1.0)
 }
 
-/// Merge result plus diagnostics.
 pub struct MergeOutput {
     pub hits: Vec<SearchHit>,
     pub quality: QualityReport,
