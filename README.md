@@ -4,6 +4,8 @@ Unified [Model Context Protocol](https://modelcontextprotocol.io) server that se
 
 Default behavior: **fan out in parallel** to every configured provider, **RRF-merge** results, and **dedupe by URL/title** while keeping `sources[]` provenance. There is **no small product cap** on result count. `limit` is an optional per-provider fetch hint. Omit it (or set `unlimited: true`) to page until providers exhaust or the **10,000 unique-result safety bound** (`OMNISEARCH_SAFETY_BOUND`).
 
+**Must-have providers** (first-class, in that default fan-out whenever keyed): **Brave Search** (`BRAVE_API_KEY`) and **GitHub Search** (`GITHUB_TOKEN` or `GITHUB_API_KEY`) for repositories, code, and users.
+
 Budgets (`max_providers`, `timeout_seconds`, `budget_usd`) cap **spend, fan-out width, and time** — not a tiny result ceiling.
 
 License: Apache-2.0. Copyright 2026 Ravi Tharuma.
@@ -99,7 +101,7 @@ Clients that speak streamable HTTP can use `http://127.0.0.1:48731/mcp` with `Au
 | `extract` / `web_extract` | Vendor extract cascade, then SSRF-safe direct fetch. |
 | `tavily_search` `exa_search` `linkup_search` `brave_search` `kagi_search` | Single-provider web search. |
 | `x_search` `reddit_search` `youtube_search` `instagram_search` `facebook_search` | Social. |
-| `github_search` | Repositories (`kind=repo`) or code (`kind=code`). |
+| `github_search` | GitHub repos (`kind=repo`), code (`kind=code`), or users (`kind=users`). |
 | `firecrawl_scrape` `firecrawl_crawl` `firecrawl_map` | Firecrawl site tools. |
 | `get_provider_info` | Non-secret metadata (configured, cost, requires_key, notes). |
 | `search_health` | Live cooldown, latency, recent errors, requires_key. |
@@ -144,7 +146,7 @@ Providers are env-gated. Unconfigured ones are skipped. Wikipedia, Semantic Scho
 | Exa | `EXA_API_KEY` | yes | yes | Neural/keyword + `/contents` |
 | Firecrawl | `FIRECRAWL_API_KEY` | yes | yes | scrape / crawl / map |
 | Linkup | `LINKUP_API_KEY` | yes | — | `outputType=searchResults` |
-| Brave | `BRAVE_API_KEY` | yes | — | Web + news, locale, freshness |
+| **Brave (must-have)** | `BRAVE_API_KEY` | yes | — | First-class web + news. In default parallel fan-out when set. |
 | Kagi | `KAGI_API_KEY` | yes | — | `Authorization: Bot …` |
 | Perplexity | `PERPLEXITY_API_KEY` | yes | — | POST `/search`. Official MCP: `https://mcp.perplexity.ai/mcp` |
 | You.com | `YOU_API_KEY` or `YDC_API_KEY` | yes | yes | `ydc-index.io/v1/search` |
@@ -152,7 +154,7 @@ Providers are env-gated. Unconfigured ones are skipped. Wikipedia, Semantic Scho
 | Querit | `QUERIT_API_KEY` | yes | yes | Multilingual filters |
 | TinyFish | `TINYFISH_API_KEY` | yes | — | Source-only |
 | Keenable | `KEENABLE_API_KEY` or `KEENABLE_PUBLIC=true` | yes | yes (keyed) | Public tier is keyless + rate limited |
-| GitHub | `GITHUB_TOKEN` | yes | — | Repos / code |
+| **GitHub (must-have)** | `GITHUB_TOKEN` or `GITHUB_API_KEY` | yes | — | First-class. Repos (default), code, users. In default parallel fan-out when set. |
 | X | `X_BEARER_TOKEN` or `XAI_API_KEY` | yes | — | X API v2 recent search, else xAI `x_search` |
 | Reddit | none, or `REDDIT_CLIENT_ID` + `REDDIT_CLIENT_SECRET` | yes | — | `search.json` + User-Agent; OAuth when set |
 | YouTube | `YOUTUBE_API_KEY` or `GOOGLE_API_KEY` | yes | — | Data API v3 `search.list` |
