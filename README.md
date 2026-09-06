@@ -1,26 +1,29 @@
 # omnisearch
 
-Rust MCP server. Default `search` fans out in parallel to every configured provider, RRF-merges, dedupes by URL/title, and records `sources[]`. `limit` is a per-provider hint. Omit it or set `unlimited: true` to page until exhaustion or 10,000 unique results (`SAFETY_BOUND`). Budgets cap spend, width, and time.
+Give your AI parallel web search across many engines so it finds sources a single search usually misses.
 
-Brave (`BRAVE_API_KEY`) and GitHub (`GITHUB_TOKEN` / `GITHUB_API_KEY`) join the default fan-out when keyed. GitHub covers repositories, code, and users.
+- **Parallel by default.** Every engine you configure is queried at once, not one at a time.
+- **Merges and dedupes.** One ranked list. Duplicate URLs and titles collapse. Each hit records which engines found it.
+- **Web, news, code, and social.** Brave and GitHub join automatically when keyed. News, X, Reddit, YouTube, and more when you add their keys.
+- **Research mode.** Search first, then read the top pages so answers can cite real sources.
+- **Drop-in for Claude Desktop and Cursor.** Point the client at the `omnisearch` binary and start searching.
 
 Apache-2.0. Copyright 2026 Ravi Tharuma.
 
-## Install
+## Get started
+
+Clone the repo, add the keys you have, run the binary:
 
 ```bash
 git clone https://github.com/RaviTharuma/omnisearch.git
 cd omnisearch
-cargo install --path .
+cp .env.example .env
+omnisearch
 ```
 
-```bash
-omnisearch                          # MCP over stdio
-omnisearch http                     # streamable HTTP
-omnisearch bench --query "rust async"
-```
+`omnisearch` talks to Claude Desktop, Cursor, and any other MCP client over stdio. Use `omnisearch http` if you want a local HTTP endpoint instead.
 
-Copy `.env.example` to `.env`.
+If the binary is not on your PATH yet, install it from this checkout (`cargo install --path .`) or drop a release build on your PATH. Toolchain notes are under [Development](#development).
 
 ### Cursor
 
@@ -43,18 +46,21 @@ Copy `.env.example` to `.env`.
 }
 ```
 
-Claude Desktop uses the same `command` / `env` shape without `args`. Any MCP client:
+### Claude Desktop
+
+Same `command` and `env`, no `args`:
 
 ```json
 {
   "omnisearch": {
-    "command": "omnisearch",
-    "args": ["stdio"]
+    "command": "omnisearch"
   }
 }
 ```
 
-HTTP:
+Any other MCP client can use `command: omnisearch` with `args: ["stdio"]`.
+
+### HTTP (optional)
 
 ```bash
 AUTH_TOKENS=replace-me OMNISEARCH_HTTP_BIND=127.0.0.1:48731 omnisearch http
@@ -66,10 +72,10 @@ AUTH_TOKENS=replace-me OMNISEARCH_HTTP_BIND=127.0.0.1:48731 omnisearch http
 
 | Tool | Purpose |
 | --- | --- |
-| `search` | Parallel fan-out + RRF. Default `mode=all`. `auto` = intent + health. `ladder` = free-first then paid. |
+| `search` | Query every configured engine in parallel and return one merged list. Default `mode=all`. `auto` picks engines from the query and recent health. `ladder` tries free engines first. |
 | `ai_search` | Answer-oriented subset (Tavily / Kagi / You.com / Exa / Perplexity when configured). |
 | `research` | Search, then extract top URLs under a time budget. |
-| `extract` / `web_extract` | Vendor extract cascade, then SSRF-safe direct fetch. |
+| `extract` / `web_extract` | Pull page text from extract vendors, then a safe direct fetch. |
 | `brave_search` `tavily_search` `exa_search` `linkup_search` `kagi_search` | Single-engine web search. |
 | `github_search` | Repos (`kind=repo`), code (`kind=code`), users (`kind=users`). |
 | `x_search` `reddit_search` `youtube_search` `instagram_search` `facebook_search` | Official social APIs. |
@@ -103,18 +109,20 @@ AUTH_TOKENS=replace-me OMNISEARCH_HTTP_BIND=127.0.0.1:48731 omnisearch http
 }
 ```
 
-Hit: `title`, `url`, `snippet`, `provider`, `score?`, `confidence?`, `published_at?`, `sources[]`, `snippet_grounded`.
+Each hit: `title`, `url`, `snippet`, `provider`, `score?`, `confidence?`, `published_at?`, `sources[]`, `snippet_grounded`.
 
-Run meta: `selected`, `successful`, `failed`, `timed_out`, `skipped`, `cost_usd`, `provider_used`, `stop_reason`. Partial fan-outs are not cached unless `cache_partial` is set.
+Run meta: `selected`, `successful`, `failed`, `timed_out`, `skipped`, `cost_usd`, `provider_used`, `stop_reason`. Partial runs are not cached unless `cache_partial` is set.
+
+`limit` is a per-engine hint. Omit it or set `unlimited: true` to keep paging until engines are exhausted or 10,000 unique results. Budgets cap spend, how many engines run, and time — not a tiny result ceiling.
 
 ## Providers
 
-Unconfigured engines are skipped. Wikipedia, Semantic Scholar, Bluesky, and Reddit public JSON work without keys.
+Unconfigured engines are skipped. Wikipedia, Semantic Scholar, Bluesky, and Reddit public JSON work without keys. Brave (`BRAVE_API_KEY`) and GitHub (`GITHUB_TOKEN` / `GITHUB_API_KEY`) join the default run when set.
 
 | Provider | Env | Search | Extract | Notes |
-| --- | --- | --- | --- | --- |
-| Brave | `BRAVE_API_KEY` | yes | — | Web + news. Default fan-out when set. |
-| GitHub | `GITHUB_TOKEN` or `GITHUB_API_KEY` | yes | — | Repos, code, users. Default fan-out when set. |
+| --- | --- |
+| Brave | `BRAVE_API_KEY` | yes | — | Web + news. On by default when set. |
+| GitHub | `GITHUB_TOKEN` or `GITHUB_API_KEY` | yes | — | Repos, code, users. On by default when set. |
 | Tavily | `TAVILY_API_KEY` | yes | yes | News topic + time_range |
 | Exa | `EXA_API_KEY` | yes | yes | Neural / keyword + `/contents` |
 | Firecrawl | `FIRECRAWL_API_KEY` | yes | yes | scrape / crawl / map |
@@ -141,29 +149,31 @@ Unconfigured engines are skipped. Wikipedia, Semantic Scholar, Bluesky, and Redd
 
 Social API limits: Instagram is hashtag-only (Meta caps unique hashtags 30 / 7 days). Facebook is Pages Search only. X prefers `X_BEARER_TOKEN` on `https://api.x.com/2/tweets/search/recent`.
 
-## Orchestration
+## How it works
 
-- Parallel default: `tokio` join across every configured engine. `mode=ladder` runs free engines first and can stop on `stop_reason=evidence`.
-- RRF + confidence: `score += 1 / (k + rank)` (`OMNISEARCH_RRF_K`, default 60), then `confidence = 0.50·RRF + 0.25·recency + 0.25·trust`.
-- Provenance: tracking params stripped; `sources[]` lists every contributing engine.
+- Every configured engine runs in parallel. `mode=ladder` runs free engines first and can stop once enough evidence is in (`stop_reason=evidence`).
+- Results merge with reciprocal rank fusion: `score += 1 / (k + rank)` (`OMNISEARCH_RRF_K`, default 60). Confidence blends that score with recency and domain trust.
+- Tracking parameters are stripped. `sources[]` lists every engine that returned the URL.
 - Dual-key failover: `NAME_2` / `NAME_3` after 429 / 5xx / timeout.
 - Health cooldown: 429 / timeouts cool an engine; `mode=auto` skips it.
-- Grounded snippets: `ground_top` fetches the top N URLs (SSRF-safe) and reframes the snippet.
-- Intent routing: `mode=auto` ranks by recent success and query type.
-- Cost gates: `OMNISEARCH_AUTO_ALLOW_USD` skips expensive engines unless listed in `providers[]`.
-- Cache: in-process TTL. Partial fan-outs are not cached unless asked. `no_cache: true` bypasses.
-- Spam / diversity: drops known shorteners; caps hits per domain, then appends overflow.
-- Freshness + news + locale: `day` / `week` / `month` / `year`; defaults `OMNISEARCH_COUNTRY=CH`, `OMNISEARCH_LANGUAGE=de`.
-- SSRF: extract/direct-fetch blocks loopback, link-local, private IPs, `file:`, metadata hosts.
-- Large payloads: over `OMNISEARCH_INLINE_MAX_BYTES`, results spill to a temp file.
+- `ground_top` fetches the top N URLs (private and loopback hosts blocked) and reframes the snippet.
+- `mode=auto` ranks engines by recent success and query type.
+- `OMNISEARCH_AUTO_ALLOW_USD` skips expensive engines unless you list them in `providers[]`.
+- In-process cache with a TTL. Partial runs are not cached unless asked. `no_cache: true` bypasses.
+- Known shorteners are dropped; hits per domain are capped, then overflow is appended.
+- Freshness: `day` / `week` / `month` / `year`. Defaults `OMNISEARCH_COUNTRY=CH`, `OMNISEARCH_LANGUAGE=de`.
+- Extract and direct-fetch block loopback, link-local, private IPs, `file:`, and metadata hosts.
+- Payloads over `OMNISEARCH_INLINE_MAX_BYTES` spill to a temp file.
 
 ## Development
 
+Needs a Rust 1.88+ toolchain. Binary and crate name: `omnisearch`. v0.1.0.
+
 ```bash
+cargo install --path .
 cargo fmt
 cargo clippy --all-targets -- -D warnings
 cargo test
 cargo build --release
+omnisearch bench --query "Swiss AI regulation 2026"
 ```
-
-Rust 1.88+. Binary and crate name: `omnisearch`. v0.1.0.
