@@ -7,20 +7,16 @@ use crate::error::Result;
 use crate::http::HttpClient;
 use crate::types::{Freshness, ProviderId, ProviderSearchRequest, SearchPage, SearchType};
 
-use super::{Provider, hit_from_value};
+use super::{Keyed, Provider, map_rows, offset, page_next};
 
 pub struct Brave {
-    http: HttpClient,
-    keys: Vec<String>,
-    base: String,
+    inner: Keyed,
 }
 
 impl Brave {
     pub fn new(config: &Config, http: HttpClient) -> Self {
         Self {
-            http,
-            keys: config.keys.brave.clone(),
-            base: config.endpoints.brave.clone(),
+            inner: Keyed::new(http, config.keys.brave.clone(), &config.endpoints.brave),
         }
     }
 }
@@ -31,10 +27,10 @@ impl Provider for Brave {
         ProviderId::Brave
     }
     fn is_configured(&self) -> bool {
-        !self.keys.is_empty()
+        self.inner.configured()
     }
     fn skip_reason(&self) -> Option<String> {
-        self.keys.is_empty().then(|| "BRAVE_API_KEY not set".into())
+        self.inner.skip("BRAVE_API_KEY")
     }
     fn estimated_search_usd(&self) -> f64 {
         0.003
@@ -47,7 +43,7 @@ impl Provider for Brave {
     }
 
     async fn search(&self, request: &ProviderSearchRequest<'_>) -> Result<SearchPage> {
-        crate::try_keys!(&self.keys, "brave", "BRAVE_API_KEY not set", |key| {
+        crate::try_keys!(&self.inner.keys, "brave", "BRAVE_API_KEY not set", |key| {
             self.search_with(key, request).await
         })
     }
@@ -70,57 +66,44 @@ impl Brave {
             Freshness::Month => "pm",
             Freshness::Year => "py",
         });
-        let offset = request
-            .cursor
-            .and_then(|c| c.parse::<u32>().ok())
-            .unwrap_or(0);
+        let start = offset(request.cursor);
+        let page_size = request.page_size.min(20);
         let mut req = self
+            .inner
             .http
-            .get(&format!("{}{path}", self.base))
+            .get(&self.inner.url(path))
             .header("X-Subscription-Token", key)
             .header("Accept", "application/json")
             .query(&[
                 ("q", request.query),
-                ("count", &request.page_size.min(20).to_string()),
-                ("offset", &offset.to_string()),
+                ("count", &page_size.to_string()),
+                ("offset", &start.to_string()),
                 ("country", request.country),
                 ("search_lang", request.language),
             ]);
         if let Some(f) = freshness {
             req = req.query(&[("freshness", f)]);
         }
-        let (_, value) = self.http.send_json("brave", req).await?;
-        let web = value
+        let value = self.inner.http.json("brave", req).await?;
+        let rows = value
             .pointer("/web/results")
             .or_else(|| value.pointer("/news/results"))
+            .and_then(|v| v.as_array())
             .cloned()
-            .unwrap_or(serde_json::Value::Array(crate::http::result_array(&value)));
-        let hits = web
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|v| {
-                hit_from_value(
-                    ProviderId::Brave,
-                    v,
-                    &["url"],
-                    &["title"],
-                    &["description"],
-                    &["page_age", "age"],
-                    &[],
-                )
-            })
-            .collect::<Vec<_>>();
-        let next = if hits.len() as u32 >= request.page_size.min(20) {
-            Some((offset + request.page_size.min(20)).to_string())
-        } else {
-            None
-        };
-        Ok(SearchPage {
-            hits,
-            next_cursor: next,
-            answer: None,
-        })
+            .unwrap_or_else(|| crate::http::result_array(&value));
+        Ok(page_next(
+            map_rows(
+                ProviderId::Brave,
+                &rows,
+                &["url"],
+                &["title"],
+                &["description"],
+                &["page_age", "age"],
+                &[],
+            ),
+            page_size,
+            start + page_size,
+        ))
     }
 }
 

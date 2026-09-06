@@ -1,27 +1,23 @@
 //! Tavily search + extract.
 
 use async_trait::async_trait;
-use serde_json::{Value, json};
+use serde_json::json;
 
 use crate::config::Config;
 use crate::error::Result;
-use crate::http::{HttpClient, pick_str, result_array};
+use crate::http::{HttpClient, pick_str};
 use crate::types::{ExtractedDoc, ProviderId, ProviderSearchRequest, SearchPage, SearchType};
 
-use super::{Provider, freshness_token, hit_from_value};
+use super::{Keyed, Provider, extract_docs, freshness_token, map_hits, page_answer};
 
 pub struct Tavily {
-    http: HttpClient,
-    keys: Vec<String>,
-    base: String,
+    inner: Keyed,
 }
 
 impl Tavily {
     pub fn new(config: &Config, http: HttpClient) -> Self {
         Self {
-            http,
-            keys: config.keys.tavily.clone(),
-            base: config.endpoints.tavily.clone(),
+            inner: Keyed::new(http, config.keys.tavily.clone(), &config.endpoints.tavily),
         }
     }
 }
@@ -32,12 +28,10 @@ impl Provider for Tavily {
         ProviderId::Tavily
     }
     fn is_configured(&self) -> bool {
-        !self.keys.is_empty()
+        self.inner.configured()
     }
     fn skip_reason(&self) -> Option<String> {
-        self.keys
-            .is_empty()
-            .then(|| "TAVILY_API_KEY not set".into())
+        self.inner.skip("TAVILY_API_KEY")
     }
     fn supports_extract(&self) -> bool {
         true
@@ -53,15 +47,21 @@ impl Provider for Tavily {
     }
 
     async fn search(&self, request: &ProviderSearchRequest<'_>) -> Result<SearchPage> {
-        crate::try_keys!(&self.keys, "tavily", "TAVILY_API_KEY not set", |key| self
-            .search_with(key, request)
-            .await,)
+        crate::try_keys!(
+            &self.inner.keys,
+            "tavily",
+            "TAVILY_API_KEY not set",
+            |key| { self.search_with(key, request).await }
+        )
     }
 
     async fn extract(&self, urls: &[String]) -> Result<Vec<ExtractedDoc>> {
-        crate::try_keys!(&self.keys, "tavily", "TAVILY_API_KEY not set", |key| self
-            .extract_with(key, urls)
-            .await,)
+        crate::try_keys!(
+            &self.inner.keys,
+            "tavily",
+            "TAVILY_API_KEY not set",
+            |key| { self.extract_with(key, urls).await }
+        )
     }
 }
 
@@ -82,44 +82,41 @@ impl Tavily {
         if let Some(token) = freshness_token(request.freshness) {
             body["time_range"] = json!(token);
         }
-        let (_, value) = self
+        let value = self
+            .inner
             .http
-            .send_json(
+            .json(
                 "tavily",
-                self.http
-                    .post(&format!("{}/search", self.base))
+                self.inner
+                    .http
+                    .post(&self.inner.url("/search"))
                     .bearer_auth(key)
                     .json(&body),
             )
             .await?;
-        let hits = result_array(&value)
-            .iter()
-            .filter_map(|v| {
-                hit_from_value(
-                    ProviderId::Tavily,
-                    v,
-                    &["url"],
-                    &["title"],
-                    &["content", "snippet"],
-                    &["published_date", "published_at"],
-                    &["score"],
-                )
-            })
-            .collect();
-        Ok(SearchPage {
-            hits,
-            next_cursor: None,
-            answer: pick_str(&value, &["answer"]),
-        })
+        Ok(page_answer(
+            map_hits(
+                ProviderId::Tavily,
+                &value,
+                &["url"],
+                &["title"],
+                &["content", "snippet"],
+                &["published_date", "published_at"],
+                &["score"],
+            ),
+            pick_str(&value, &["answer"]),
+        ))
     }
 
     async fn extract_with(&self, key: &str, urls: &[String]) -> Result<Vec<ExtractedDoc>> {
-        let (_, value) = self
+        let value = self
+            .inner
             .http
-            .send_json(
+            .json(
                 "tavily",
-                self.http
-                    .post(&format!("{}/extract", self.base))
+                self.inner
+                    .http
+                    .post(&self.inner.url("/extract"))
                     .bearer_auth(key)
                     .json(&json!({ "urls": urls })),
             )
@@ -128,25 +125,10 @@ impl Tavily {
     }
 }
 
-pub(crate) fn extract_docs(id: ProviderId, value: &Value) -> Vec<ExtractedDoc> {
-    result_array(value)
-        .into_iter()
-        .filter_map(|v| {
-            let url = pick_str(&v, &["url"])?;
-            Some(ExtractedDoc {
-                url,
-                title: pick_str(&v, &["title"]),
-                content: pick_str(&v, &["raw_content", "content", "text", "markdown"])
-                    .unwrap_or_default(),
-                provider: id.as_str().to_string(),
-            })
-        })
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::providers::hit_from_value;
     use serde_json::json;
 
     #[test]

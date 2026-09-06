@@ -5,27 +5,27 @@ use serde_json::json;
 
 use crate::config::Config;
 use crate::error::{Error, Result};
-use crate::http::{HttpClient, result_array};
+use crate::http::HttpClient;
 use crate::types::{ExtractedDoc, ProviderId, ProviderSearchRequest, SearchPage};
 
-use super::{Provider, hit_from_value};
+use super::{Keyed, Provider, extract_docs, map_hits, page};
 
 pub struct Keenable {
-    http: HttpClient,
-    keys: Vec<String>,
+    inner: Keyed,
     public: bool,
     title: String,
-    base: String,
 }
 
 impl Keenable {
     pub fn new(config: &Config, http: HttpClient) -> Self {
         Self {
-            http,
-            keys: config.keys.keenable.clone(),
+            inner: Keyed::new(
+                http,
+                config.keys.keenable.clone(),
+                &config.endpoints.keenable,
+            ),
             public: config.keenable_public,
             title: config.keenable_title.clone(),
-            base: config.endpoints.keenable.clone(),
         }
     }
 }
@@ -36,7 +36,7 @@ impl Provider for Keenable {
         ProviderId::Keenable
     }
     fn is_configured(&self) -> bool {
-        !self.keys.is_empty() || self.public
+        self.inner.configured() || self.public
     }
     fn skip_reason(&self) -> Option<String> {
         if self.is_configured() {
@@ -46,10 +46,14 @@ impl Provider for Keenable {
         }
     }
     fn supports_extract(&self) -> bool {
-        !self.keys.is_empty()
+        self.inner.configured()
     }
     fn estimated_search_usd(&self) -> f64 {
-        if self.keys.is_empty() { 0.0 } else { 0.003 }
+        if self.inner.keys.is_empty() {
+            0.0
+        } else {
+            0.003
+        }
     }
     fn requires_key(&self) -> bool {
         !self.public
@@ -75,67 +79,68 @@ impl Provider for Keenable {
         if let Some(fresh) = request.freshness {
             body["published_after"] = json!(fresh.since_rfc3339());
         }
-        let (_, value) = if self.keys.is_empty() {
-            self.http
-                .send_json(
+        let value = if self.inner.keys.is_empty() {
+            self.inner
+                .http
+                .json(
                     "keenable",
-                    self.http
-                        .post(&format!("{}/v1/search/public", self.base))
+                    self.inner
+                        .http
+                        .post(&self.inner.url("/v1/search/public"))
                         .header("X-Keenable-Title", &self.title)
                         .json(&body),
                 )
                 .await?
         } else {
-            crate::try_keys!(&self.keys, "keenable", "KEENABLE_API_KEY not set", |key| {
-                self.http
-                    .send_json(
-                        "keenable",
-                        self.http
-                            .post(&format!("{}/v1/search", self.base))
-                            .header("X-API-Key", key)
-                            .json(&body),
-                    )
-                    .await
-            })?
+            crate::try_keys!(
+                &self.inner.keys,
+                "keenable",
+                "KEENABLE_API_KEY not set",
+                |key| {
+                    self.inner
+                        .http
+                        .json(
+                            "keenable",
+                            self.inner
+                                .http
+                                .post(&self.inner.url("/v1/search"))
+                                .header("X-API-Key", key)
+                                .json(&body),
+                        )
+                        .await
+                }
+            )?
         };
-        let hits = result_array(&value)
-            .iter()
-            .filter_map(|v| {
-                hit_from_value(
-                    ProviderId::Keenable,
-                    v,
-                    &["url"],
-                    &["title"],
-                    &["snippet", "description", "excerpt"],
-                    &["published_at"],
-                    &[],
-                )
-            })
-            .collect();
-        Ok(SearchPage {
-            hits,
-            next_cursor: None,
-            answer: None,
-        })
+        Ok(page(map_hits(
+            ProviderId::Keenable,
+            &value,
+            &["url"],
+            &["title"],
+            &["snippet", "description", "excerpt"],
+            &["published_at"],
+            &[],
+        )))
     }
 
     async fn extract(&self, urls: &[String]) -> Result<Vec<ExtractedDoc>> {
         crate::try_keys!(
-            &self.keys,
+            &self.inner.keys,
             "keenable",
             "extract requires KEENABLE_API_KEY",
             |key| {
-                let (_, value) = self
+                let value = self
+                    .inner
                     .http
-                    .send_json(
+                    .json(
                         "keenable",
-                        self.http
-                            .post(&format!("{}/v1/extract", self.base))
+                        self.inner
+                            .http
+                            .post(&self.inner.url("/v1/extract"))
                             .header("X-API-Key", key)
                             .json(&json!({ "urls": urls })),
                     )
                     .await?;
-                Ok(super::tavily::extract_docs(ProviderId::Keenable, &value))
+                Ok(extract_docs(ProviderId::Keenable, &value))
             }
         )
     }

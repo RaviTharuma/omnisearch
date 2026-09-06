@@ -100,9 +100,9 @@ impl Instagram {
                 "instagram search needs a hashtag or single keyword".into(),
             ));
         }
-        let (_, resolved) = self
+        let resolved = self
             .http
-            .send_json(
+            .json(
                 "instagram",
                 self.http
                     .get(&format!("{}/ig_hashtag_search", self.base))
@@ -132,7 +132,7 @@ impl Instagram {
         if let Some(after) = request.cursor {
             builder = builder.query(&[("after", after)]);
         }
-        let (_, media) = self.http.send_json("instagram", builder).await?;
+        let media = self.http.json("instagram", builder).await?;
         let hits = media
             .get("data")
             .and_then(Value::as_array)

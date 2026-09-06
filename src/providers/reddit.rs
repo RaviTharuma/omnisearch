@@ -35,9 +35,9 @@ impl Reddit {
         let (Some(id), Some(secret)) = (&self.client_id, &self.client_secret) else {
             return Ok(None);
         };
-        let (_, value) = self
+        let value = self
             .http
-            .send_json(
+            .json(
                 "reddit",
                 self.http
                     .post(&format!("{}/api/v1/access_token", self.public_base))
@@ -57,9 +57,6 @@ impl Provider for Reddit {
     }
     fn is_configured(&self) -> bool {
         true
-    }
-    fn skip_reason(&self) -> Option<String> {
-        None
     }
     fn estimated_search_usd(&self) -> f64 {
         0.0
@@ -96,7 +93,7 @@ impl Provider for Reddit {
         if let Some(token) = token {
             builder = builder.bearer_auth(token);
         }
-        let (_, value) = self.http.send_json("reddit", builder).await?;
+        let value = self.http.json("reddit", builder).await?;
         let children = value
             .pointer("/data/children")
             .and_then(Value::as_array)

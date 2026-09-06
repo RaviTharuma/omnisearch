@@ -8,20 +8,16 @@ use crate::error::Result;
 use crate::http::{HttpClient, pick_str};
 use crate::types::{ExtractedDoc, Freshness, ProviderId, ProviderSearchRequest, SearchPage};
 
-use super::{Provider, hit_from_value};
+use super::{Keyed, Provider, map_rows, offset};
 
 pub struct YouCom {
-    http: HttpClient,
-    keys: Vec<String>,
-    base: String,
+    inner: Keyed,
 }
 
 impl YouCom {
     pub fn new(config: &Config, http: HttpClient) -> Self {
         Self {
-            http,
-            keys: config.keys.youcom.clone(),
-            base: config.endpoints.youcom.clone(),
+            inner: Keyed::new(http, config.keys.youcom.clone(), &config.endpoints.youcom),
         }
     }
 }
@@ -32,10 +28,11 @@ impl Provider for YouCom {
         ProviderId::Youcom
     }
     fn is_configured(&self) -> bool {
-        !self.keys.is_empty()
+        self.inner.configured()
     }
     fn skip_reason(&self) -> Option<String> {
-        self.keys
+        self.inner
+            .keys
             .is_empty()
             .then(|| "YOU_API_KEY or YDC_API_KEY not set".into())
     }
@@ -53,13 +50,13 @@ impl Provider for YouCom {
     }
 
     async fn search(&self, request: &ProviderSearchRequest<'_>) -> Result<SearchPage> {
-        crate::try_keys!(&self.keys, "youcom", "YOU_API_KEY not set", |key| {
+        crate::try_keys!(&self.inner.keys, "youcom", "YOU_API_KEY not set", |key| {
             self.search_with(key, request).await
         })
     }
 
     async fn extract(&self, urls: &[String]) -> Result<Vec<ExtractedDoc>> {
-        crate::try_keys!(&self.keys, "youcom", "YOU_API_KEY not set", |key| {
+        crate::try_keys!(&self.inner.keys, "youcom", "YOU_API_KEY not set", |key| {
             self.extract_with(key, urls).await
         })
     }
@@ -77,25 +74,24 @@ impl YouCom {
             Freshness::Month => "month",
             Freshness::Year => "year",
         });
-        let offset = request
-            .cursor
-            .and_then(|c| c.parse::<u32>().ok())
-            .unwrap_or(0);
+        let start = offset(request.cursor);
+        let page_size = request.page_size.min(100);
         let mut builder = self
+            .inner
             .http
-            .get(&format!("{}/v1/search", self.base))
+            .get(&self.inner.url("/v1/search"))
             .header("X-API-Key", key)
             .query(&[
                 ("query", request.query),
-                ("count", &request.page_size.min(100).to_string()),
-                ("offset", &offset.to_string()),
+                ("count", &page_size.to_string()),
+                ("offset", &start.to_string()),
                 ("country", request.country),
                 ("language", request.language),
             ]);
         if let Some(f) = freshness {
             builder = builder.query(&[("freshness", f)]);
         }
-        let (_, value) = self.http.send_json("youcom", builder).await?;
+        let value = self.inner.http.json("youcom", builder).await?;
         let mut rows = Vec::new();
         if let Some(web) = value.pointer("/results/web").and_then(Value::as_array) {
             rows.extend(web.iter().cloned());
@@ -106,25 +102,16 @@ impl YouCom {
         if rows.is_empty() {
             rows = crate::http::result_array(&value);
         }
-        let hits = rows
-            .iter()
-            .filter_map(|v| {
-                hit_from_value(
-                    ProviderId::Youcom,
-                    v,
-                    &["url"],
-                    &["title"],
-                    &["description", "snippets", "snippet"],
-                    &["published_date", "date"],
-                    &[],
-                )
-            })
-            .collect::<Vec<_>>();
-        let next = if hits.len() as u32 >= request.page_size.min(100) && offset < 9 {
-            Some((offset + 1).to_string())
-        } else {
-            None
-        };
+        let hits = map_rows(
+            ProviderId::Youcom,
+            &rows,
+            &["url"],
+            &["title"],
+            &["description", "snippets", "snippet"],
+            &["published_date", "date"],
+            &[],
+        );
+        let next = (hits.len() as u32 >= page_size && start < 9).then(|| (start + 1).to_string());
         Ok(SearchPage {
             hits,
             next_cursor: next,
@@ -135,12 +122,14 @@ impl YouCom {
     async fn extract_with(&self, key: &str, urls: &[String]) -> Result<Vec<ExtractedDoc>> {
         let mut docs = Vec::new();
         for url in urls {
-            let (_, value) = self
+            let value = self
+                .inner
                 .http
-                .send_json(
+                .json(
                     "youcom",
-                    self.http
-                        .get(&format!("{}/v1/search", self.base))
+                    self.inner
+                        .http
+                        .get(&self.inner.url("/v1/search"))
                         .header("X-API-Key", key)
                         .query(&[
                             ("query", url.as_str()),

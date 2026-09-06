@@ -102,7 +102,7 @@ impl McpBackends {
         if let Some(token) = &backend.token {
             builder = builder.bearer_auth(token);
         }
-        if let Ok((_, value)) = self.http.send_json("mcp_backend", builder).await
+        if let Ok(value) = self.http.json("mcp_backend", builder).await
             && let Some(page) = parse_backend_value(&value)
         {
             return Ok(page);
@@ -114,7 +114,7 @@ impl McpBackends {
         if let Some(token) = &backend.token {
             builder = builder.bearer_auth(token);
         }
-        let (_, value) = self.http.send_json("mcp_backend", builder).await?;
+        let value = self.http.json("mcp_backend", builder).await?;
         parse_backend_value(&value)
             .ok_or_else(|| Error::provider("mcp_backend", "backend returned no results"))
     }
