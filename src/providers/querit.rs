@@ -5,23 +5,19 @@ use serde_json::json;
 
 use crate::config::Config;
 use crate::error::Result;
-use crate::http::{HttpClient, result_array};
+use crate::http::HttpClient;
 use crate::types::{ExtractedDoc, ProviderId, ProviderSearchRequest, SearchPage};
 
-use super::{Provider, freshness_token, hit_from_value};
+use super::{Keyed, Provider, extract_docs, freshness_token, map_hits, map_rows, page};
 
 pub struct Querit {
-    http: HttpClient,
-    keys: Vec<String>,
-    base: String,
+    inner: Keyed,
 }
 
 impl Querit {
     pub fn new(config: &Config, http: HttpClient) -> Self {
         Self {
-            http,
-            keys: config.keys.querit.clone(),
-            base: config.endpoints.querit.clone(),
+            inner: Keyed::new(http, config.keys.querit.clone(), &config.endpoints.querit),
         }
     }
 }
@@ -32,12 +28,10 @@ impl Provider for Querit {
         ProviderId::Querit
     }
     fn is_configured(&self) -> bool {
-        !self.keys.is_empty()
+        self.inner.configured()
     }
     fn skip_reason(&self) -> Option<String> {
-        self.keys
-            .is_empty()
-            .then(|| "QUERIT_API_KEY not set".into())
+        self.inner.skip("QUERIT_API_KEY")
     }
     fn supports_extract(&self) -> bool {
         true
@@ -50,15 +44,21 @@ impl Provider for Querit {
     }
 
     async fn search(&self, request: &ProviderSearchRequest<'_>) -> Result<SearchPage> {
-        crate::try_keys!(&self.keys, "querit", "QUERIT_API_KEY not set", |key| {
-            self.search_with(key, request).await
-        })
+        crate::try_keys!(
+            &self.inner.keys,
+            "querit",
+            "QUERIT_API_KEY not set",
+            |key| { self.search_with(key, request).await }
+        )
     }
 
     async fn extract(&self, urls: &[String]) -> Result<Vec<ExtractedDoc>> {
-        crate::try_keys!(&self.keys, "querit", "QUERIT_API_KEY not set", |key| {
-            self.extract_with(key, urls).await
-        })
+        crate::try_keys!(
+            &self.inner.keys,
+            "querit",
+            "QUERIT_API_KEY not set",
+            |key| { self.extract_with(key, urls).await }
+        )
     }
 }
 
@@ -79,27 +79,25 @@ impl Querit {
         if let Some(token) = freshness_token(request.freshness) {
             body["filters"]["timeRange"] = json!({ "date": token });
         }
-        let (_, value) = self
+        let value = self
+            .inner
             .http
-            .send_json(
+            .json(
                 "querit",
-                self.http
-                    .post(&format!("{}/v1/search", self.base))
+                self.inner
+                    .http
+                    .post(&self.inner.url("/v1/search"))
                     .bearer_auth(key)
                     .json(&body),
             )
             .await?;
-        let rows = value
+        let hits = value
             .pointer("/results/result")
             .and_then(|v| v.as_array())
-            .cloned()
-            .unwrap_or_else(|| result_array(&value));
-        let hits = rows
-            .iter()
-            .filter_map(|v| {
-                hit_from_value(
+            .map(|rows| {
+                map_rows(
                     ProviderId::Querit,
-                    v,
+                    rows,
                     &["url"],
                     &["title"],
                     &["snippet", "content"],
@@ -107,25 +105,33 @@ impl Querit {
                     &[],
                 )
             })
-            .collect();
-        Ok(SearchPage {
-            hits,
-            next_cursor: None,
-            answer: None,
-        })
+            .unwrap_or_else(|| {
+                map_hits(
+                    ProviderId::Querit,
+                    &value,
+                    &["url"],
+                    &["title"],
+                    &["snippet", "content"],
+                    &["page_age", "published_at"],
+                    &[],
+                )
+            });
+        Ok(page(hits))
     }
 
     async fn extract_with(&self, key: &str, urls: &[String]) -> Result<Vec<ExtractedDoc>> {
-        let (_, value) = self
+        let value = self
+            .inner
             .http
-            .send_json(
+            .json(
                 "querit",
-                self.http
-                    .post(&format!("{}/v1/contents", self.base))
+                self.inner
+                    .http
+                    .post(&self.inner.url("/v1/contents"))
                     .bearer_auth(key)
                     .json(&json!({ "urls": urls, "format": "markdown" })),
             )
             .await?;
-        Ok(super::tavily::extract_docs(ProviderId::Querit, &value))
+        Ok(extract_docs(ProviderId::Querit, &value))
     }
 }

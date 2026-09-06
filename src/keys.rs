@@ -2,7 +2,6 @@
 
 use crate::error::Error;
 
-/// Collect `NAME`, `NAME_2`, `NAME_3` (non-empty) from the environment.
 pub fn env_key_ring(name: &str) -> Vec<String> {
     let mut keys = Vec::new();
     for suffix in ["", "_2", "_3"] {
@@ -19,7 +18,6 @@ pub fn env_key_ring(name: &str) -> Vec<String> {
 /// GitHub token environment names (first non-empty wins, then `_2` / `_3`).
 pub const GITHUB_KEY_NAMES: &[&str] = &["GITHUB_TOKEN", "GITHUB_API_KEY", "GH_TOKEN"];
 
-/// Union of several primary names, each with `_2` / `_3` suffixes.
 pub fn env_key_rings(names: &[&str]) -> Vec<String> {
     let mut keys = Vec::new();
     for name in names {

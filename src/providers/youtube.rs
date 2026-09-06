@@ -8,20 +8,16 @@ use crate::error::Result;
 use crate::http::{HttpClient, pick_str};
 use crate::types::{ProviderId, ProviderSearchRequest, SearchHit, SearchPage};
 
-use super::Provider;
+use super::{Keyed, Provider};
 
 pub struct Youtube {
-    http: HttpClient,
-    keys: Vec<String>,
-    base: String,
+    inner: Keyed,
 }
 
 impl Youtube {
     pub fn new(config: &Config, http: HttpClient) -> Self {
         Self {
-            http,
-            keys: config.keys.youtube.clone(),
-            base: config.endpoints.youtube.clone(),
+            inner: Keyed::new(http, config.keys.youtube.clone(), &config.endpoints.youtube),
         }
     }
 }
@@ -32,10 +28,11 @@ impl Provider for Youtube {
         ProviderId::Youtube
     }
     fn is_configured(&self) -> bool {
-        !self.keys.is_empty()
+        self.inner.configured()
     }
     fn skip_reason(&self) -> Option<String> {
-        self.keys
+        self.inner
+            .keys
             .is_empty()
             .then(|| "YOUTUBE_API_KEY or GOOGLE_API_KEY not set".into())
     }
@@ -50,9 +47,12 @@ impl Provider for Youtube {
     }
 
     async fn search(&self, request: &ProviderSearchRequest<'_>) -> Result<SearchPage> {
-        crate::try_keys!(&self.keys, "youtube", "YOUTUBE_API_KEY not set", |key| self
-            .search_with(key, request)
-            .await,)
+        crate::try_keys!(
+            &self.inner.keys,
+            "youtube",
+            "YOUTUBE_API_KEY not set",
+            |key| { self.search_with(key, request).await }
+        )
     }
 }
 
@@ -63,8 +63,9 @@ impl Youtube {
         request: &ProviderSearchRequest<'_>,
     ) -> Result<SearchPage> {
         let mut builder = self
+            .inner
             .http
-            .get(&format!("{}/youtube/v3/search", self.base))
+            .get(&self.inner.url("/youtube/v3/search"))
             .query(&[
                 ("part", "snippet"),
                 ("q", request.query),
@@ -78,7 +79,7 @@ impl Youtube {
         if let Some(fresh) = request.freshness {
             builder = builder.query(&[("publishedAfter", &fresh.since_rfc3339())]);
         }
-        let (_, value) = self.http.send_json("youtube", builder).await?;
+        let value = self.inner.http.json("youtube", builder).await?;
         let hits = value
             .get("items")
             .and_then(Value::as_array)

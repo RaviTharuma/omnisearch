@@ -25,7 +25,6 @@ struct AuthState {
     hits: Arc<DashMap<String, Vec<Instant>>>,
 }
 
-/// Serve MCP over streamable HTTP.
 pub async fn serve_http(state: Arc<AppState>) -> anyhow::Result<()> {
     let bind: SocketAddr = state
         .config

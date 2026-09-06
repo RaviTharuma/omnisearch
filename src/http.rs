@@ -8,14 +8,13 @@ use serde_json::Value;
 use crate::config::Config;
 use crate::error::{Error, Result};
 
-/// Thin wrapper around reqwest with a consistent User-Agent and timeout.
+/// Reqwest client with a fixed User-Agent, timeout, and typed status mapping.
 #[derive(Clone)]
 pub struct HttpClient {
     inner: Client,
 }
 
 impl HttpClient {
-    /// Build a client from process config.
     pub fn new(config: &Config) -> Result<Self> {
         let inner = Client::builder()
             .user_agent(&config.user_agent)
@@ -25,22 +24,19 @@ impl HttpClient {
         Ok(Self { inner })
     }
 
-    /// Start a request.
     pub fn request(&self, method: Method, url: &str) -> RequestBuilder {
         self.inner.request(method, url)
     }
 
-    /// Convenience GET.
     pub fn get(&self, url: &str) -> RequestBuilder {
         self.inner.get(url)
     }
 
-    /// Convenience POST.
     pub fn post(&self, url: &str) -> RequestBuilder {
         self.inner.post(url)
     }
 
-    /// Send a request and map HTTP failures to typed errors.
+    /// Map 429 / non-success HTTP into `Error::{RateLimited,Provider}`.
     pub async fn send_json(
         &self,
         provider: &str,
@@ -74,9 +70,12 @@ impl HttpClient {
         let value = serde_json::from_str(&body).unwrap_or(Value::String(body));
         Ok((status, value))
     }
+
+    pub async fn json(&self, provider: &str, builder: RequestBuilder) -> Result<Value> {
+        Ok(self.send_json(provider, builder).await?.1)
+    }
 }
 
-/// Truncate noisy upstream bodies for logs and errors.
 fn truncate(input: &str, max: usize) -> String {
     let mut out: String = input.chars().take(max).collect();
     if input.chars().count() > max {
@@ -85,7 +84,6 @@ fn truncate(input: &str, max: usize) -> String {
     out
 }
 
-/// Read a string field from the first matching key.
 pub fn pick_str(value: &Value, keys: &[&str]) -> Option<String> {
     for key in keys {
         if let Some(found) = value.get(*key) {
@@ -101,7 +99,6 @@ pub fn pick_str(value: &Value, keys: &[&str]) -> Option<String> {
     None
 }
 
-/// Read an f64 from the first matching key.
 pub fn pick_f64(value: &Value, keys: &[&str]) -> Option<f64> {
     for key in keys {
         if let Some(found) = value.get(*key) {
@@ -118,7 +115,6 @@ pub fn pick_f64(value: &Value, keys: &[&str]) -> Option<f64> {
     None
 }
 
-/// Walk common result-array locations.
 pub fn result_array(value: &Value) -> Vec<Value> {
     const PATHS: &[&str] = &[
         "results",

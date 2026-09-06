@@ -8,20 +8,16 @@ use crate::error::Result;
 use crate::http::{HttpClient, result_array};
 use crate::types::{ExtractedDoc, ProviderId, ProviderSearchRequest, SearchPage, SearchType};
 
-use super::{Provider, hit_from_value};
+use super::{Keyed, Provider, extract_docs, hit_from_value, page};
 
 pub struct Exa {
-    http: HttpClient,
-    keys: Vec<String>,
-    base: String,
+    inner: Keyed,
 }
 
 impl Exa {
     pub fn new(config: &Config, http: HttpClient) -> Self {
         Self {
-            http,
-            keys: config.keys.exa.clone(),
-            base: config.endpoints.exa.clone(),
+            inner: Keyed::new(http, config.keys.exa.clone(), &config.endpoints.exa),
         }
     }
 }
@@ -32,10 +28,10 @@ impl Provider for Exa {
         ProviderId::Exa
     }
     fn is_configured(&self) -> bool {
-        !self.keys.is_empty()
+        self.inner.configured()
     }
     fn skip_reason(&self) -> Option<String> {
-        self.keys.is_empty().then(|| "EXA_API_KEY not set".into())
+        self.inner.skip("EXA_API_KEY")
     }
     fn supports_extract(&self) -> bool {
         true
@@ -51,13 +47,13 @@ impl Provider for Exa {
     }
 
     async fn search(&self, request: &ProviderSearchRequest<'_>) -> Result<SearchPage> {
-        crate::try_keys!(&self.keys, "exa", "EXA_API_KEY not set", |key| {
+        crate::try_keys!(&self.inner.keys, "exa", "EXA_API_KEY not set", |key| {
             self.search_with(key, request).await
         })
     }
 
     async fn extract(&self, urls: &[String]) -> Result<Vec<ExtractedDoc>> {
-        crate::try_keys!(&self.keys, "exa", "EXA_API_KEY not set", |key| {
+        crate::try_keys!(&self.inner.keys, "exa", "EXA_API_KEY not set", |key| {
             self.extract_with(key, urls).await
         })
     }
@@ -83,12 +79,14 @@ impl Exa {
         if let Some(fresh) = request.freshness {
             body["startPublishedDate"] = json!(fresh.since_rfc3339());
         }
-        let (_, value) = self
+        let value = self
+            .inner
             .http
-            .send_json(
+            .json(
                 "exa",
-                self.http
-                    .post(&format!("{}/search", self.base))
+                self.inner
+                    .http
+                    .post(&self.inner.url("/search"))
                     .header("x-api-key", key)
                     .json(&body),
             )
@@ -116,24 +114,22 @@ impl Exa {
                 Some(hit)
             })
             .collect();
-        Ok(SearchPage {
-            hits,
-            next_cursor: None,
-            answer: None,
-        })
+        Ok(page(hits))
     }
 
     async fn extract_with(&self, key: &str, urls: &[String]) -> Result<Vec<ExtractedDoc>> {
-        let (_, value) = self
+        let value = self
+            .inner
             .http
-            .send_json(
+            .json(
                 "exa",
-                self.http
-                    .post(&format!("{}/contents", self.base))
+                self.inner
+                    .http
+                    .post(&self.inner.url("/contents"))
                     .header("x-api-key", key)
                     .json(&json!({ "urls": urls, "text": true })),
             )
             .await?;
-        Ok(super::tavily::extract_docs(ProviderId::Exa, &value))
+        Ok(extract_docs(ProviderId::Exa, &value))
     }
 }

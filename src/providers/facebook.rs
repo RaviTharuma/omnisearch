@@ -8,20 +8,20 @@ use crate::error::Result;
 use crate::http::{HttpClient, pick_str};
 use crate::types::{ProviderId, ProviderSearchRequest, SearchHit, SearchPage};
 
-use super::Provider;
+use super::{Keyed, Provider};
 
 pub struct Facebook {
-    http: HttpClient,
-    tokens: Vec<String>,
-    base: String,
+    inner: Keyed,
 }
 
 impl Facebook {
     pub fn new(config: &Config, http: HttpClient) -> Self {
         Self {
-            http,
-            tokens: config.keys.facebook_token.clone(),
-            base: config.endpoints.meta_graph.clone(),
+            inner: Keyed::new(
+                http,
+                config.keys.facebook_token.clone(),
+                &config.endpoints.meta_graph,
+            ),
         }
     }
 }
@@ -32,10 +32,11 @@ impl Provider for Facebook {
         ProviderId::Facebook
     }
     fn is_configured(&self) -> bool {
-        !self.tokens.is_empty()
+        self.inner.configured()
     }
     fn skip_reason(&self) -> Option<String> {
-        self.tokens
+        self.inner
+            .keys
             .is_empty()
             .then(|| "FACEBOOK_ACCESS_TOKEN or META_ACCESS_TOKEN not set".into())
     }
@@ -48,7 +49,7 @@ impl Provider for Facebook {
 
     async fn search(&self, request: &ProviderSearchRequest<'_>) -> Result<SearchPage> {
         crate::try_keys!(
-            &self.tokens,
+            &self.inner.keys,
             "facebook",
             "FACEBOOK_ACCESS_TOKEN not set",
             |token| self.search_with(token, request).await,
@@ -62,12 +63,14 @@ impl Facebook {
         token: &str,
         request: &ProviderSearchRequest<'_>,
     ) -> Result<SearchPage> {
-        let (_, value) = self
+        let value = self
+            .inner
             .http
-            .send_json(
+            .json(
                 "facebook",
-                self.http
-                    .get(&format!("{}/pages/search", self.base))
+                self.inner
+                    .http
+                    .get(&self.inner.url("/pages/search"))
                     .query(&[
                         ("q", request.query),
                         ("fields", "id,name,link,about,fan_count"),
