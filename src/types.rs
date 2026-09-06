@@ -30,6 +30,7 @@ pub enum ProviderId {
     Querit,
     Tinyfish,
     Keenable,
+    Perplexity,
     Wikipedia,
     Scholar,
     Mastodon,
@@ -52,6 +53,7 @@ impl ProviderId {
             Self::Querit,
             Self::Tinyfish,
             Self::Keenable,
+            Self::Perplexity,
             Self::Github,
             Self::Reddit,
             Self::X,
@@ -86,6 +88,7 @@ impl ProviderId {
             Self::Querit => "querit",
             Self::Tinyfish => "tinyfish",
             Self::Keenable => "keenable",
+            Self::Perplexity => "perplexity",
             Self::Wikipedia => "wikipedia",
             Self::Scholar => "scholar",
             Self::Mastodon => "mastodon",
@@ -115,6 +118,7 @@ impl ProviderId {
             "querit" => Self::Querit,
             "tinyfish" => Self::Tinyfish,
             "keenable" => Self::Keenable,
+            "perplexity" | "pplx" | "sonar" => Self::Perplexity,
             "wikipedia" | "wiki" => Self::Wikipedia,
             "scholar" | "semantic_scholar" | "semanticscholar" => Self::Scholar,
             "mastodon" => Self::Mastodon,
@@ -145,6 +149,8 @@ pub enum SearchMode {
     All,
     /// Query-intent plus health-based subset.
     Auto,
+    /// Free providers first, then paid by rising cost. May stop on evidence.
+    Ladder,
 }
 
 /// Search vertical.
@@ -210,6 +216,12 @@ pub struct SearchHit {
     /// Providers that contributed this URL after RRF merge.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sources: Vec<String>,
+    /// Blended confidence after RRF (recency + multi-source trust).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<f64>,
+    /// True when the snippet was rewritten from a fetched page.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub snippet_grounded: bool,
 }
 
 impl SearchHit {
@@ -229,6 +241,8 @@ impl SearchHit {
             provider,
             score: None,
             published_at: None,
+            confidence: None,
+            snippet_grounded: false,
         }
     }
 }
@@ -267,7 +281,13 @@ pub struct SearchRequest {
     pub timeout_seconds: Option<u64>,
     pub budget_usd: Option<f64>,
     pub no_cache: bool,
+    /// Cache this response even if some selected providers failed.
+    pub cache_partial: bool,
     pub include_quality_report: bool,
+    /// Fetch and rewrite snippets for the top N hits (SSRF-safe).
+    pub ground_top: Option<u32>,
+    /// Ladder/evidence stop: enough unique hits to skip remaining paid providers.
+    pub evidence_min: Option<u32>,
 }
 
 impl SearchRequest {
@@ -287,7 +307,10 @@ impl SearchRequest {
             timeout_seconds: None,
             budget_usd: None,
             no_cache: false,
+            cache_partial: false,
             include_quality_report: false,
+            ground_top: None,
+            evidence_min: None,
         }
     }
 
@@ -322,6 +345,14 @@ pub struct RunMeta {
     pub safety_bound: u32,
     pub rrf_k: f64,
     pub estimated_cost_usd: f64,
+    /// Estimated USD of providers that actually succeeded.
+    pub cost_usd: f64,
+    /// Providers that returned hits or an empty-but-successful page.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub provider_used: Vec<String>,
+    /// Why the run stopped: complete, partial_provider_failure, timeout, budget_usd, max_providers, safety_bound, evidence.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stop_reason: Option<String>,
     pub elapsed_ms: u64,
 }
 
@@ -389,6 +420,25 @@ pub struct ProviderInfo {
     pub configured: bool,
     pub search: bool,
     pub extract: bool,
+    pub estimated_search_usd: f64,
+    pub requires_key: bool,
+    pub notes: String,
+}
+
+/// Live health snapshot for one provider (no secrets).
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ProviderHealth {
+    pub id: String,
+    pub configured: bool,
+    pub requires_key: bool,
+    pub cooling: bool,
+    pub cooldown_remaining_secs: u64,
+    pub success: u64,
+    pub failure: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_latency_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
     pub estimated_search_usd: f64,
     pub notes: String,
 }
