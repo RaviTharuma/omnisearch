@@ -1,6 +1,6 @@
 # omnisearch
 
-Give your AI parallel web search across many engines so it finds sources a single search usually misses.
+MCP server for parallel web search across many engines — so your AI finds sources a single search usually misses. One engine or one LLM is not enough.
 
 - **Parallel by default.** Every engine you configure is queried at once, not one at a time.
 - **Merges and dedupes.** One ranked list. Duplicate URLs and titles collapse. Each hit records which engines found it.
