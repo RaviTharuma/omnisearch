@@ -2,7 +2,7 @@
 
 use std::env;
 
-use crate::keys::{env_key_ring, env_key_rings};
+use crate::keys::{GITHUB_KEY_NAMES, env_key_ring, env_key_rings};
 use crate::types::{DEFAULT_RRF_K, SAFETY_BOUND, SearchMode};
 
 /// Process configuration loaded from the environment.
@@ -192,7 +192,7 @@ impl Config {
                 linkup: env_key_ring("LINKUP_API_KEY"),
                 brave: env_key_ring("BRAVE_API_KEY"),
                 kagi: env_key_ring("KAGI_API_KEY"),
-                github: env_key_rings(&["GITHUB_TOKEN", "GH_TOKEN"]),
+                github: env_key_rings(GITHUB_KEY_NAMES),
                 x_bearer: env_key_rings(&["X_BEARER_TOKEN", "TWITTER_BEARER_TOKEN"]),
                 xai: env_key_ring("XAI_API_KEY"),
                 reddit_client_id: env::var("REDDIT_CLIENT_ID").ok().filter(|s| !s.is_empty()),
