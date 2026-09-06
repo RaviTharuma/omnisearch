@@ -12,7 +12,7 @@ use super::{Provider, hit_from_value};
 
 pub struct Exa {
     http: HttpClient,
-    key: Option<String>,
+    keys: Vec<String>,
     base: String,
 }
 
@@ -20,7 +20,7 @@ impl Exa {
     pub fn new(config: &Config, http: HttpClient) -> Self {
         Self {
             http,
-            key: config.keys.exa.clone(),
+            keys: config.keys.exa.clone(),
             base: config.endpoints.exa.clone(),
         }
     }
@@ -32,10 +32,10 @@ impl Provider for Exa {
         ProviderId::Exa
     }
     fn is_configured(&self) -> bool {
-        self.key.is_some()
+        !self.keys.is_empty()
     }
     fn skip_reason(&self) -> Option<String> {
-        self.key.is_none().then(|| "EXA_API_KEY not set".into())
+        self.keys.is_empty().then(|| "EXA_API_KEY not set".into())
     }
     fn supports_extract(&self) -> bool {
         true
@@ -47,17 +47,28 @@ impl Provider for Exa {
         100
     }
     fn notes(&self) -> &'static str {
-        "Neural / keyword search plus /contents extract."
+        "Neural / keyword search plus /contents extract. Dual-key: EXA_API_KEY_2."
     }
 
     async fn search(&self, request: &ProviderSearchRequest<'_>) -> Result<SearchPage> {
-        let key = self
-            .key
-            .as_deref()
-            .ok_or_else(|| crate::error::Error::NotConfigured {
-                provider: "exa".into(),
-                reason: "EXA_API_KEY not set".into(),
-            })?;
+        crate::try_keys!(&self.keys, "exa", "EXA_API_KEY not set", |key| {
+            self.search_with(key, request).await
+        })
+    }
+
+    async fn extract(&self, urls: &[String]) -> Result<Vec<ExtractedDoc>> {
+        crate::try_keys!(&self.keys, "exa", "EXA_API_KEY not set", |key| {
+            self.extract_with(key, urls).await
+        })
+    }
+}
+
+impl Exa {
+    async fn search_with(
+        &self,
+        key: &str,
+        request: &ProviderSearchRequest<'_>,
+    ) -> Result<SearchPage> {
         let kind = if matches!(request.search_type, SearchType::News) {
             "neural"
         } else {
@@ -112,14 +123,7 @@ impl Provider for Exa {
         })
     }
 
-    async fn extract(&self, urls: &[String]) -> Result<Vec<ExtractedDoc>> {
-        let key = self
-            .key
-            .as_deref()
-            .ok_or_else(|| crate::error::Error::NotConfigured {
-                provider: "exa".into(),
-                reason: "EXA_API_KEY not set".into(),
-            })?;
+    async fn extract_with(&self, key: &str, urls: &[String]) -> Result<Vec<ExtractedDoc>> {
         let (_, value) = self
             .http
             .send_json(

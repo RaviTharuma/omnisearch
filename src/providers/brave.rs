@@ -11,7 +11,7 @@ use super::{Provider, hit_from_value};
 
 pub struct Brave {
     http: HttpClient,
-    key: Option<String>,
+    keys: Vec<String>,
     base: String,
 }
 
@@ -19,7 +19,7 @@ impl Brave {
     pub fn new(config: &Config, http: HttpClient) -> Self {
         Self {
             http,
-            key: config.keys.brave.clone(),
+            keys: config.keys.brave.clone(),
             base: config.endpoints.brave.clone(),
         }
     }
@@ -31,10 +31,10 @@ impl Provider for Brave {
         ProviderId::Brave
     }
     fn is_configured(&self) -> bool {
-        self.key.is_some()
+        !self.keys.is_empty()
     }
     fn skip_reason(&self) -> Option<String> {
-        self.key.is_none().then(|| "BRAVE_API_KEY not set".into())
+        self.keys.is_empty().then(|| "BRAVE_API_KEY not set".into())
     }
     fn estimated_search_usd(&self) -> f64 {
         0.003
@@ -47,13 +47,18 @@ impl Provider for Brave {
     }
 
     async fn search(&self, request: &ProviderSearchRequest<'_>) -> Result<SearchPage> {
-        let key = self
-            .key
-            .as_deref()
-            .ok_or_else(|| crate::error::Error::NotConfigured {
-                provider: "brave".into(),
-                reason: "BRAVE_API_KEY not set".into(),
-            })?;
+        crate::try_keys!(&self.keys, "brave", "BRAVE_API_KEY not set", |key| {
+            self.search_with(key, request).await
+        })
+    }
+}
+
+impl Brave {
+    async fn search_with(
+        &self,
+        key: &str,
+        request: &ProviderSearchRequest<'_>,
+    ) -> Result<SearchPage> {
         let path = if matches!(request.search_type, SearchType::News) {
             "/res/v1/news/search"
         } else {

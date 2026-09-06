@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use crate::config::Config;
-use crate::error::{Error, Result};
+use crate::error::Result;
 use crate::http::{HttpClient, pick_str};
 use crate::types::{ProviderId, ProviderSearchRequest, SearchHit, SearchPage};
 
@@ -12,7 +12,7 @@ use super::Provider;
 
 pub struct Facebook {
     http: HttpClient,
-    token: Option<String>,
+    tokens: Vec<String>,
     base: String,
 }
 
@@ -20,7 +20,7 @@ impl Facebook {
     pub fn new(config: &Config, http: HttpClient) -> Self {
         Self {
             http,
-            token: config.keys.facebook_token.clone(),
+            tokens: config.keys.facebook_token.clone(),
             base: config.endpoints.meta_graph.clone(),
         }
     }
@@ -32,11 +32,11 @@ impl Provider for Facebook {
         ProviderId::Facebook
     }
     fn is_configured(&self) -> bool {
-        self.token.is_some()
+        !self.tokens.is_empty()
     }
     fn skip_reason(&self) -> Option<String> {
-        self.token
-            .is_none()
+        self.tokens
+            .is_empty()
             .then(|| "FACEBOOK_ACCESS_TOKEN or META_ACCESS_TOKEN not set".into())
     }
     fn estimated_search_usd(&self) -> f64 {
@@ -47,10 +47,21 @@ impl Provider for Facebook {
     }
 
     async fn search(&self, request: &ProviderSearchRequest<'_>) -> Result<SearchPage> {
-        let token = self.token.as_deref().ok_or_else(|| Error::NotConfigured {
-            provider: "facebook".into(),
-            reason: "FACEBOOK_ACCESS_TOKEN not set".into(),
-        })?;
+        crate::try_keys!(
+            &self.tokens,
+            "facebook",
+            "FACEBOOK_ACCESS_TOKEN not set",
+            |token| self.search_with(token, request).await,
+        )
+    }
+}
+
+impl Facebook {
+    async fn search_with(
+        &self,
+        token: &str,
+        request: &ProviderSearchRequest<'_>,
+    ) -> Result<SearchPage> {
         let (_, value) = self
             .http
             .send_json(

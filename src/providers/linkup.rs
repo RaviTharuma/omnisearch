@@ -12,7 +12,7 @@ use super::{Provider, hit_from_value};
 
 pub struct Linkup {
     http: HttpClient,
-    key: Option<String>,
+    keys: Vec<String>,
     base: String,
 }
 
@@ -20,7 +20,7 @@ impl Linkup {
     pub fn new(config: &Config, http: HttpClient) -> Self {
         Self {
             http,
-            key: config.keys.linkup.clone(),
+            keys: config.keys.linkup.clone(),
             base: config.endpoints.linkup.clone(),
         }
     }
@@ -32,10 +32,12 @@ impl Provider for Linkup {
         ProviderId::Linkup
     }
     fn is_configured(&self) -> bool {
-        self.key.is_some()
+        !self.keys.is_empty()
     }
     fn skip_reason(&self) -> Option<String> {
-        self.key.is_none().then(|| "LINKUP_API_KEY not set".into())
+        self.keys
+            .is_empty()
+            .then(|| "LINKUP_API_KEY not set".into())
     }
     fn estimated_search_usd(&self) -> f64 {
         0.007
@@ -45,13 +47,18 @@ impl Provider for Linkup {
     }
 
     async fn search(&self, request: &ProviderSearchRequest<'_>) -> Result<SearchPage> {
-        let key = self
-            .key
-            .as_deref()
-            .ok_or_else(|| crate::error::Error::NotConfigured {
-                provider: "linkup".into(),
-                reason: "LINKUP_API_KEY not set".into(),
-            })?;
+        crate::try_keys!(&self.keys, "linkup", "LINKUP_API_KEY not set", |key| self
+            .search_with(key, request)
+            .await,)
+    }
+}
+
+impl Linkup {
+    async fn search_with(
+        &self,
+        key: &str,
+        request: &ProviderSearchRequest<'_>,
+    ) -> Result<SearchPage> {
         let (_, value) = self
             .http
             .send_json(

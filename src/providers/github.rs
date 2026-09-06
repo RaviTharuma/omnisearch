@@ -11,7 +11,7 @@ use super::{Provider, hit_from_value};
 
 pub struct Github {
     http: HttpClient,
-    token: Option<String>,
+    tokens: Vec<String>,
     base: String,
 }
 
@@ -19,7 +19,7 @@ impl Github {
     pub fn new(config: &Config, http: HttpClient) -> Self {
         Self {
             http,
-            token: config.keys.github.clone(),
+            tokens: config.keys.github.clone(),
             base: config.endpoints.github.clone(),
         }
     }
@@ -31,10 +31,12 @@ impl Provider for Github {
         ProviderId::Github
     }
     fn is_configured(&self) -> bool {
-        self.token.is_some()
+        !self.tokens.is_empty()
     }
     fn skip_reason(&self) -> Option<String> {
-        self.token.is_none().then(|| "GITHUB_TOKEN not set".into())
+        self.tokens
+            .is_empty()
+            .then(|| "GITHUB_TOKEN not set".into())
     }
     fn estimated_search_usd(&self) -> f64 {
         0.0
@@ -47,13 +49,18 @@ impl Provider for Github {
     }
 
     async fn search(&self, request: &ProviderSearchRequest<'_>) -> Result<SearchPage> {
-        let token = self
-            .token
-            .as_deref()
-            .ok_or_else(|| crate::error::Error::NotConfigured {
-                provider: "github".into(),
-                reason: "GITHUB_TOKEN not set".into(),
-            })?;
+        crate::try_keys!(&self.tokens, "github", "GITHUB_TOKEN not set", |token| self
+            .search_with(token, request)
+            .await,)
+    }
+}
+
+impl Github {
+    async fn search_with(
+        &self,
+        token: &str,
+        request: &ProviderSearchRequest<'_>,
+    ) -> Result<SearchPage> {
         let page = request
             .cursor
             .and_then(|c| c.parse::<u32>().ok())
