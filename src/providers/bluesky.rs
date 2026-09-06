@@ -32,9 +32,6 @@ impl Provider for Bluesky {
     fn is_configured(&self) -> bool {
         true
     }
-    fn skip_reason(&self) -> Option<String> {
-        None
-    }
     fn estimated_search_usd(&self) -> f64 {
         0.0
     }
@@ -59,7 +56,7 @@ impl Provider for Bluesky {
         if let Some(cursor) = request.cursor {
             builder = builder.query(&[("cursor", cursor)]);
         }
-        let (_, value) = self.http.send_json("bluesky", builder).await?;
+        let value = self.http.json("bluesky", builder).await?;
         let hits = value
             .get("posts")
             .and_then(Value::as_array)

@@ -8,7 +8,7 @@ use crate::error::Result;
 use crate::http::{HttpClient, pick_str};
 use crate::types::{ProviderId, ProviderSearchRequest, SearchHit, SearchPage};
 
-use super::Provider;
+use super::{Provider, offset, page_next};
 
 pub struct Scholar {
     http: HttpClient,
@@ -32,9 +32,6 @@ impl Provider for Scholar {
     fn is_configured(&self) -> bool {
         true
     }
-    fn skip_reason(&self) -> Option<String> {
-        None
-    }
     fn estimated_search_usd(&self) -> f64 {
         0.0
     }
@@ -49,20 +46,18 @@ impl Provider for Scholar {
     }
 
     async fn search(&self, request: &ProviderSearchRequest<'_>) -> Result<SearchPage> {
-        let offset = request
-            .cursor
-            .and_then(|c| c.parse::<u32>().ok())
-            .unwrap_or(0);
-        let (_, value) = self
+        let start = offset(request.cursor);
+        let page_size = request.page_size.min(100);
+        let value = self
             .http
-            .send_json(
+            .json(
                 "scholar",
                 self.http
                     .get(&format!("{}/graph/v1/paper/search", self.base))
                     .query(&[
                         ("query", request.query),
-                        ("limit", &request.page_size.min(100).to_string()),
-                        ("offset", &offset.to_string()),
+                        ("limit", &page_size.to_string()),
+                        ("offset", &start.to_string()),
                         ("fields", "title,url,abstract,year,externalIds"),
                     ]),
             )
@@ -94,15 +89,6 @@ impl Provider for Scholar {
                 Some(hit)
             })
             .collect::<Vec<_>>();
-        let next = if hits.len() as u32 >= request.page_size.min(100) {
-            Some((offset + request.page_size.min(100)).to_string())
-        } else {
-            None
-        };
-        Ok(SearchPage {
-            hits,
-            next_cursor: next,
-            answer: None,
-        })
+        Ok(page_next(hits, page_size, start + page_size))
     }
 }

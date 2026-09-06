@@ -66,7 +66,7 @@ impl Provider for Mastodon {
         if let Some(token) = &self.token {
             builder = builder.bearer_auth(token);
         }
-        let (_, value) = self.http.send_json("mastodon", builder).await?;
+        let value = self.http.json("mastodon", builder).await?;
         let hits = value
             .get("statuses")
             .and_then(Value::as_array)
@@ -79,30 +79,12 @@ impl Provider for Mastodon {
                     ProviderId::Mastodon,
                     content.chars().take(80).collect::<String>(),
                     url,
-                    strip_tags(&content),
+                    crate::ground::strip_markup(&content),
                 );
                 hit.published_at = pick_str(s, &["created_at"]);
                 Some(hit)
             })
             .collect();
-        Ok(SearchPage {
-            hits,
-            next_cursor: None,
-            answer: None,
-        })
+        Ok(super::page(hits))
     }
-}
-
-fn strip_tags(input: &str) -> String {
-    let mut out = String::new();
-    let mut in_tag = false;
-    for c in input.chars() {
-        match c {
-            '<' => in_tag = true,
-            '>' => in_tag = false,
-            _ if !in_tag => out.push(c),
-            _ => {}
-        }
-    }
-    out
 }

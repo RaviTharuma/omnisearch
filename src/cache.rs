@@ -13,7 +13,6 @@ struct Entry {
     value: SearchResponse,
 }
 
-/// Process-local cache. Not shared across hosts.
 #[derive(Default)]
 pub struct SearchCache {
     map: DashMap<String, Entry>,

@@ -6,7 +6,6 @@ use std::time::Instant;
 use crate::orchestrator::AppState;
 use crate::types::{ProviderSearchRequest, SearchType};
 
-/// One provider measurement.
 #[derive(Debug, Serialize)]
 pub struct BenchRow {
     pub provider: String,
@@ -18,7 +17,6 @@ pub struct BenchRow {
     pub error: Option<String>,
 }
 
-/// Run a short query against every provider.
 pub async fn run_bench(state: &AppState, query: &str) -> Vec<BenchRow> {
     let mut rows = Vec::new();
     for info in state.registry.infos() {

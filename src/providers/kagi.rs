@@ -4,23 +4,19 @@ use async_trait::async_trait;
 
 use crate::config::Config;
 use crate::error::Result;
-use crate::http::{HttpClient, pick_str, result_array};
+use crate::http::{HttpClient, pick_str};
 use crate::types::{ProviderId, ProviderSearchRequest, SearchPage, SearchType};
 
-use super::{Provider, hit_from_value};
+use super::{Keyed, Provider, map_hits, page_answer};
 
 pub struct Kagi {
-    http: HttpClient,
-    keys: Vec<String>,
-    base: String,
+    inner: Keyed,
 }
 
 impl Kagi {
     pub fn new(config: &Config, http: HttpClient) -> Self {
         Self {
-            http,
-            keys: config.keys.kagi.clone(),
-            base: config.endpoints.kagi.clone(),
+            inner: Keyed::new(http, config.keys.kagi.clone(), &config.endpoints.kagi),
         }
     }
 }
@@ -31,10 +27,10 @@ impl Provider for Kagi {
         ProviderId::Kagi
     }
     fn is_configured(&self) -> bool {
-        !self.keys.is_empty()
+        self.inner.configured()
     }
     fn skip_reason(&self) -> Option<String> {
-        self.keys.is_empty().then(|| "KAGI_API_KEY not set".into())
+        self.inner.skip("KAGI_API_KEY")
     }
     fn estimated_search_usd(&self) -> f64 {
         0.01
@@ -44,7 +40,7 @@ impl Provider for Kagi {
     }
 
     async fn search(&self, request: &ProviderSearchRequest<'_>) -> Result<SearchPage> {
-        crate::try_keys!(&self.keys, "kagi", "KAGI_API_KEY not set", |key| {
+        crate::try_keys!(&self.inner.keys, "kagi", "KAGI_API_KEY not set", |key| {
             self.search_with(key, request).await
         })
     }
@@ -61,12 +57,14 @@ impl Kagi {
         } else {
             "/api/v0/search"
         };
-        let (_, value) = self
+        let value = self
+            .inner
             .http
-            .send_json(
+            .json(
                 "kagi",
-                self.http
-                    .get(&format!("{}{path}", self.base))
+                self.inner
+                    .http
+                    .get(&self.inner.url(path))
                     .header("Authorization", format!("Bot {key}"))
                     .query(&[
                         ("q", request.query),
@@ -74,24 +72,17 @@ impl Kagi {
                     ]),
             )
             .await?;
-        let hits = result_array(&value)
-            .iter()
-            .filter_map(|v| {
-                hit_from_value(
-                    ProviderId::Kagi,
-                    v,
-                    &["url"],
-                    &["title"],
-                    &["snippet"],
-                    &["published"],
-                    &[],
-                )
-            })
-            .collect();
-        Ok(SearchPage {
-            hits,
-            next_cursor: None,
-            answer: pick_str(&value, &["output", "answer"]),
-        })
+        Ok(page_answer(
+            map_hits(
+                ProviderId::Kagi,
+                &value,
+                &["url"],
+                &["title"],
+                &["snippet"],
+                &["published"],
+                &[],
+            ),
+            pick_str(&value, &["output", "answer"]),
+        ))
     }
 }

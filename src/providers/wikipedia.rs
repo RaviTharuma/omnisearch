@@ -8,7 +8,7 @@ use crate::error::Result;
 use crate::http::{HttpClient, pick_str};
 use crate::types::{ProviderId, ProviderSearchRequest, SearchHit, SearchPage};
 
-use super::Provider;
+use super::{Provider, offset, page_next};
 
 pub struct Wikipedia {
     http: HttpClient,
@@ -32,9 +32,6 @@ impl Provider for Wikipedia {
     fn is_configured(&self) -> bool {
         true
     }
-    fn skip_reason(&self) -> Option<String> {
-        None
-    }
     fn estimated_search_usd(&self) -> f64 {
         0.0
     }
@@ -49,20 +46,18 @@ impl Provider for Wikipedia {
     }
 
     async fn search(&self, request: &ProviderSearchRequest<'_>) -> Result<SearchPage> {
-        let offset = request
-            .cursor
-            .and_then(|c| c.parse::<u32>().ok())
-            .unwrap_or(0);
-        let (_, value) = self
+        let start = offset(request.cursor);
+        let page_size = request.page_size.min(50);
+        let value = self
             .http
-            .send_json(
+            .json(
                 "wikipedia",
                 self.http.get(&format!("{}/w/api.php", self.base)).query(&[
                     ("action", "query"),
                     ("list", "search"),
                     ("srsearch", request.query),
-                    ("srlimit", &request.page_size.min(50).to_string()),
-                    ("sroffset", &offset.to_string()),
+                    ("srlimit", &page_size.to_string()),
+                    ("sroffset", &start.to_string()),
                     ("format", "json"),
                 ]),
             )
@@ -79,33 +74,10 @@ impl Provider for Wikipedia {
                     ProviderId::Wikipedia,
                     &title,
                     format!("https://en.wikipedia.org/wiki/{}", title.replace(' ', "_")),
-                    html_to_text(&snippet),
+                    crate::ground::strip_markup(&snippet),
                 ))
             })
             .collect::<Vec<_>>();
-        let next = if hits.len() as u32 >= request.page_size.min(50) {
-            Some((offset + request.page_size.min(50)).to_string())
-        } else {
-            None
-        };
-        Ok(SearchPage {
-            hits,
-            next_cursor: next,
-            answer: None,
-        })
+        Ok(page_next(hits, page_size, start + page_size))
     }
-}
-
-fn html_to_text(input: &str) -> String {
-    let mut out = String::new();
-    let mut in_tag = false;
-    for c in input.chars() {
-        match c {
-            '<' => in_tag = true,
-            '>' => in_tag = false,
-            _ if !in_tag => out.push(c),
-            _ => {}
-        }
-    }
-    out
 }

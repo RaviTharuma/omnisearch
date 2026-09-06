@@ -5,23 +5,23 @@ use serde_json::json;
 
 use crate::config::Config;
 use crate::error::Result;
-use crate::http::{HttpClient, result_array};
+use crate::http::HttpClient;
 use crate::types::{ProviderId, ProviderSearchRequest, SearchPage};
 
-use super::{Provider, hit_from_value};
+use super::{Keyed, Provider, map_hits, page};
 
 pub struct TinyFish {
-    http: HttpClient,
-    keys: Vec<String>,
-    base: String,
+    inner: Keyed,
 }
 
 impl TinyFish {
     pub fn new(config: &Config, http: HttpClient) -> Self {
         Self {
-            http,
-            keys: config.keys.tinyfish.clone(),
-            base: config.endpoints.tinyfish.clone(),
+            inner: Keyed::new(
+                http,
+                config.keys.tinyfish.clone(),
+                &config.endpoints.tinyfish,
+            ),
         }
     }
 }
@@ -32,15 +32,10 @@ impl Provider for TinyFish {
         ProviderId::Tinyfish
     }
     fn is_configured(&self) -> bool {
-        !self.keys.is_empty()
+        self.inner.configured()
     }
     fn skip_reason(&self) -> Option<String> {
-        self.keys
-            .is_empty()
-            .then(|| "TINYFISH_API_KEY not set".into())
-    }
-    fn supports_extract(&self) -> bool {
-        false
+        self.inner.skip("TINYFISH_API_KEY")
     }
     fn estimated_search_usd(&self) -> f64 {
         0.006
@@ -50,9 +45,12 @@ impl Provider for TinyFish {
     }
 
     async fn search(&self, request: &ProviderSearchRequest<'_>) -> Result<SearchPage> {
-        crate::try_keys!(&self.keys, "tinyfish", "TINYFISH_API_KEY not set", |key| {
-            self.search_with(key, request).await
-        },)
+        crate::try_keys!(
+            &self.inner.keys,
+            "tinyfish",
+            "TINYFISH_API_KEY not set",
+            |key| self.search_with(key, request).await,
+        )
     }
 }
 
@@ -62,12 +60,14 @@ impl TinyFish {
         key: &str,
         request: &ProviderSearchRequest<'_>,
     ) -> Result<SearchPage> {
-        let (_, value) = self
+        let value = self
+            .inner
             .http
-            .send_json(
+            .json(
                 "tinyfish",
-                self.http
-                    .post(&format!("{}/v1/search", self.base))
+                self.inner
+                    .http
+                    .post(&self.inner.url("/v1/search"))
                     .bearer_auth(key)
                     .json(&json!({
                         "query": request.query,
@@ -75,24 +75,14 @@ impl TinyFish {
                     })),
             )
             .await?;
-        let hits = result_array(&value)
-            .iter()
-            .filter_map(|v| {
-                hit_from_value(
-                    ProviderId::Tinyfish,
-                    v,
-                    &["url", "source", "link"],
-                    &["title", "name"],
-                    &["snippet", "description"],
-                    &["published_at", "date"],
-                    &[],
-                )
-            })
-            .collect();
-        Ok(SearchPage {
-            hits,
-            next_cursor: None,
-            answer: None,
-        })
+        Ok(page(map_hits(
+            ProviderId::Tinyfish,
+            &value,
+            &["url", "source", "link"],
+            &["title", "name"],
+            &["snippet", "description"],
+            &["published_at", "date"],
+            &[],
+        )))
     }
 }
