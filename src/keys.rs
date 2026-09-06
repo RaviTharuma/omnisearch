@@ -16,6 +16,9 @@ pub fn env_key_ring(name: &str) -> Vec<String> {
     keys
 }
 
+/// GitHub token environment names (first non-empty wins, then `_2` / `_3`).
+pub const GITHUB_KEY_NAMES: &[&str] = &["GITHUB_TOKEN", "GITHUB_API_KEY", "GH_TOKEN"];
+
 /// Union of several primary names, each with `_2` / `_3` suffixes.
 pub fn env_key_rings(names: &[&str]) -> Vec<String> {
     let mut keys = Vec::new();
@@ -79,6 +82,14 @@ macro_rules! try_keys {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn github_key_names_include_token_and_api_key() {
+        assert_eq!(
+            GITHUB_KEY_NAMES,
+            &["GITHUB_TOKEN", "GITHUB_API_KEY", "GH_TOKEN"]
+        );
+    }
 
     #[test]
     fn failover_matches_429_and_5xx() {
