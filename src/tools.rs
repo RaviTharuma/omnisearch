@@ -50,12 +50,8 @@ impl OmniServer {
             _ => SearchMode::All,
         };
         let search_type = match params.search_type.as_deref() {
-            Some("news") => SearchType::News,
-            Some("code") => SearchType::Code,
-            Some("social") => SearchType::Social,
-            Some("scholarly") => SearchType::Scholarly,
-            Some("video") => SearchType::Video,
-            _ => SearchType::Web,
+            Some(raw) => SearchType::parse(raw).map_err(|e| e.to_mcp())?,
+            None => SearchType::Web,
         };
         let freshness = params
             .freshness
@@ -97,7 +93,7 @@ pub struct SearchParams {
     pub unlimited: Option<bool>,
     /// `all` (default parallel), `auto` (intent + health), or `ladder` (free-first).
     pub mode: Option<String>,
-    /// `web`, `news`, `code`, `social`, `scholarly`, `video`.
+    /// `web`, `news`, `code`, `social`, `scholarly`, `video`, `users`.
     pub search_type: Option<String>,
     /// `day`, `week`, `month`, `year`.
     pub freshness: Option<String>,
@@ -176,7 +172,7 @@ pub struct BenchParams {
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 pub struct GithubParams {
     pub query: String,
-    /// `repo` or `code`.
+    /// `repo` (default), `code`, or `users`.
     pub kind: Option<String>,
     pub limit: Option<u32>,
 }
@@ -272,7 +268,9 @@ impl OmniServer {
     }
 
     /// Brave search.
-    #[tool(description = "Search with Brave Search.")]
+    #[tool(
+        description = "Search with Brave Search (BRAVE_API_KEY). Also included in default parallel fan-out."
+    )]
     pub async fn brave_search(
         &self,
         Parameters(params): Parameters<QueryParams>,
@@ -290,7 +288,9 @@ impl OmniServer {
     }
 
     /// GitHub search.
-    #[tool(description = "Search GitHub repositories or code.")]
+    #[tool(
+        description = "Search GitHub repositories (kind=repo, default), code (kind=code), or users (kind=users). Uses GITHUB_TOKEN or GITHUB_API_KEY."
+    )]
     pub async fn github_search(
         &self,
         Parameters(params): Parameters<GithubParams>,
@@ -299,11 +299,7 @@ impl OmniServer {
         req.providers = Some(vec![ProviderId::Github]);
         req.limit = params.limit;
         req.unlimited = params.limit.is_none();
-        req.search_type = if params.kind.as_deref() == Some("code") {
-            SearchType::Code
-        } else {
-            SearchType::Web
-        };
+        req.search_type = crate::providers::github::parse_kind(params.kind.as_deref());
         to_json(&search(&self.state, req).await)
     }
 
@@ -388,8 +384,8 @@ impl OmniServer {
             .transpose()
             .map_err(|e| e.to_mcp())?;
         req.search_type = match params.search_type.as_deref() {
-            Some("news") => SearchType::News,
-            _ => SearchType::Web,
+            Some(raw) => SearchType::parse(raw).map_err(|e| e.to_mcp())?,
+            None => SearchType::Web,
         };
         let out = research(
             &self.state,
