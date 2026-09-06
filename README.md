@@ -1,6 +1,6 @@
 # omnisearch
 
-Unified [Model Context Protocol](https://modelcontextprotocol.io) server that searches and extracts across many providers from one tool surface.
+**Multi-provider Rust MCP search server.** Unified [Model Context Protocol](https://modelcontextprotocol.io) tools that fan out across Tavily, Exa, Firecrawl, Linkup, Brave, and more — then RRF-merge and dedupe results from one tool surface.
 
 Default behavior: **fan out in parallel** to every configured provider, **RRF-merge** results, and **dedupe by URL/title** while keeping `sources[]` provenance. There is **no small product cap** on result count. `limit` is an optional per-provider fetch hint. Omit it (or set `unlimited: true`) to page until providers exhaust or the **10,000 unique-result safety bound** (`OMNISEARCH_SAFETY_BOUND`).
 
