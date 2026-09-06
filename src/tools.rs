@@ -530,7 +530,7 @@ impl ServerHandler for OmniServer {
                 env!("CARGO_PKG_VERSION"),
             ))
             .with_instructions(
-                "Unified multi-provider search. Default search fans out in parallel to all configured providers, then RRF-merges with URL/title dedupe and sources[] provenance. limit is a soft hint; omit it for unlimited pagination up to the 10k safety bound. Budgets cap spend/providers/time, not result count. Social: YouTube (Data API), Instagram (hashtag Graph API), Facebook (pages/search only), X, Reddit, Mastodon, Bluesky.",
+                "Parallel multi-provider search MCP. Default search fans out to every configured engine (Brave and GitHub are first-class when keyed), then RRF-merges with URL/title dedupe and sources[] provenance. limit is a soft hint; omit it for unlimited pagination up to the 10k safety bound. Budgets cap spend/providers/time, not result count. github_search supports repo, code, and users. Social: YouTube (Data API), Instagram (hashtag Graph API), Facebook (pages/search only), X, Reddit, Mastodon, Bluesky.",
             )
     }
 }
