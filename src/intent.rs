@@ -37,6 +37,16 @@ pub fn select_providers(
     chosen
 }
 
+/// Free providers first, then rising estimated USD.
+pub fn sort_ladder(ids: &mut [ProviderId], cost: impl Fn(ProviderId) -> f64) {
+    ids.sort_by(|a, b| {
+        cost(*a)
+            .partial_cmp(&cost(*b))
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.as_str().cmp(b.as_str()))
+    });
+}
+
 /// Map query text and vertical onto a provider subset.
 fn intent_subset(query: &str, vertical: SearchType, configured: &[ProviderId]) -> Vec<ProviderId> {
     let q = query.to_ascii_lowercase();
@@ -116,5 +126,19 @@ mod tests {
         let health = HealthBoard::new();
         let selected = select_providers(&req, &configured, &health, false);
         assert!(selected.contains(&ProviderId::Github));
+    }
+
+    #[test]
+    fn ladder_orders_free_before_paid() {
+        let mut ids = vec![ProviderId::Tavily, ProviderId::Wikipedia, ProviderId::Exa];
+        sort_ladder(&mut ids, |id| match id {
+            ProviderId::Wikipedia => 0.0,
+            ProviderId::Exa => 0.006,
+            ProviderId::Tavily => 0.008,
+            _ => 1.0,
+        });
+        assert_eq!(ids[0], ProviderId::Wikipedia);
+        assert_eq!(ids[1], ProviderId::Exa);
+        assert_eq!(ids[2], ProviderId::Tavily);
     }
 }
