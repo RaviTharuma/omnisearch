@@ -1,4 +1,4 @@
-//! Brave Search API.
+//! First-class Brave Search adapter (web + news).
 
 use async_trait::async_trait;
 
@@ -43,7 +43,7 @@ impl Provider for Brave {
         20
     }
     fn notes(&self) -> &'static str {
-        "Web and news endpoints. Supports country, search_lang, freshness."
+        "First-class web + news search. Always in default parallel fan-out when BRAVE_API_KEY is set. Supports country, search_lang, freshness. Dual-key: BRAVE_API_KEY_2."
     }
 
     async fn search(&self, request: &ProviderSearchRequest<'_>) -> Result<SearchPage> {
@@ -121,5 +121,49 @@ impl Brave {
             next_cursor: next,
             answer: None,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::providers::hit_from_value;
+    use serde_json::json;
+
+    #[test]
+    fn maps_web_and_news_hits() {
+        let web = hit_from_value(
+            ProviderId::Brave,
+            &json!({
+                "url": "https://brave.com/search",
+                "title": "Brave Search",
+                "description": "Independent search",
+                "page_age": "2026-01-01"
+            }),
+            &["url"],
+            &["title"],
+            &["description"],
+            &["page_age", "age"],
+            &[],
+        )
+        .unwrap();
+        assert_eq!(web.title, "Brave Search");
+        assert_eq!(web.published_at.as_deref(), Some("2026-01-01"));
+
+        let news = hit_from_value(
+            ProviderId::Brave,
+            &json!({
+                "url": "https://news.example/a",
+                "title": "Headline",
+                "description": "Today"
+            }),
+            &["url"],
+            &["title"],
+            &["description"],
+            &["page_age", "age"],
+            &[],
+        )
+        .unwrap();
+        assert_eq!(news.provider, "brave");
     }
 }
