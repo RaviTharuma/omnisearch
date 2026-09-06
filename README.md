@@ -1,12 +1,13 @@
 # omnisearch
 
-**Parallel search MCP** — search many engines at once so your AI finds what a single search (or the model alone) usually misses.
+**Search MCP** — parallel search across many engines so your AI finds what a single search (or the model alone) usually misses.
 
 One [MCP](https://modelcontextprotocol.io) server for Claude, Cursor, and any MCP client. Drop in the API keys you already have.
 
 **Why people use it**
 
-- **Parallel search MCP** — several engines together, not one at a time
+- **Search MCP** — plug parallel web search into any MCP client
+- **Many engines at once** — not one provider at a time
 - **Better coverage** — merges and dedupes so you see the overlap *and* the unique hits
 - **More than “just Google”** — web, news, code, papers, and social in one place
 - **Research mode** — search, then pull the best pages when you need depth
