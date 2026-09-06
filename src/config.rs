@@ -2,7 +2,8 @@
 
 use std::env;
 
-use crate::types::{DEFAULT_RRF_K, SAFETY_BOUND};
+use crate::keys::{env_key_ring, env_key_rings};
+use crate::types::{DEFAULT_RRF_K, SAFETY_BOUND, SearchMode};
 
 /// Process configuration loaded from the environment.
 #[derive(Debug, Clone)]
@@ -19,6 +20,10 @@ pub struct Config {
     pub auto_allow_usd: f64,
     pub max_per_domain: usize,
     pub inline_max_bytes: usize,
+    pub cache_partial: bool,
+    pub default_mode: SearchMode,
+    pub ground_top: usize,
+    pub evidence_min: u32,
     pub http_bind: String,
     pub auth_tokens: Vec<String>,
     pub http_rpm: u32,
@@ -41,26 +46,27 @@ pub struct McpBackend {
 /// Secret material. Never serialize into tool output.
 #[derive(Debug, Clone, Default)]
 pub struct ProviderKeys {
-    pub tavily: Option<String>,
-    pub exa: Option<String>,
-    pub firecrawl: Option<String>,
-    pub linkup: Option<String>,
-    pub brave: Option<String>,
-    pub kagi: Option<String>,
-    pub github: Option<String>,
-    pub x_bearer: Option<String>,
-    pub xai: Option<String>,
+    pub tavily: Vec<String>,
+    pub exa: Vec<String>,
+    pub firecrawl: Vec<String>,
+    pub linkup: Vec<String>,
+    pub brave: Vec<String>,
+    pub kagi: Vec<String>,
+    pub github: Vec<String>,
+    pub x_bearer: Vec<String>,
+    pub xai: Vec<String>,
     pub reddit_client_id: Option<String>,
     pub reddit_client_secret: Option<String>,
-    pub youtube: Option<String>,
-    pub instagram_token: Option<String>,
+    pub youtube: Vec<String>,
+    pub instagram_token: Vec<String>,
     pub instagram_user_id: Option<String>,
-    pub facebook_token: Option<String>,
-    pub youcom: Option<String>,
-    pub parallel: Option<String>,
-    pub querit: Option<String>,
-    pub tinyfish: Option<String>,
-    pub keenable: Option<String>,
+    pub facebook_token: Vec<String>,
+    pub youcom: Vec<String>,
+    pub parallel: Vec<String>,
+    pub querit: Vec<String>,
+    pub tinyfish: Vec<String>,
+    pub keenable: Vec<String>,
+    pub perplexity: Vec<String>,
     pub mastodon_token: Option<String>,
     pub mastodon_instance: Option<String>,
     pub bluesky_handle: Option<String>,
@@ -88,6 +94,7 @@ pub struct Endpoints {
     pub querit: String,
     pub tinyfish: String,
     pub keenable: String,
+    pub perplexity: String,
     pub wikipedia: String,
     pub scholar: String,
     pub bluesky: String,
@@ -114,6 +121,7 @@ impl Default for Endpoints {
             querit: "https://api.querit.ai".into(),
             tinyfish: "https://api.tinyfish.dev".into(),
             keenable: "https://api.keenable.ai".into(),
+            perplexity: "https://api.perplexity.ai".into(),
             wikipedia: "https://en.wikipedia.org".into(),
             scholar: "https://api.semanticscholar.org".into(),
             bluesky: "https://public.api.bsky.app".into(),
@@ -144,6 +152,7 @@ impl Config {
             querit: env_or("QUERIT_BASE_URL", "https://api.querit.ai"),
             tinyfish: env_or("TINYFISH_BASE_URL", "https://api.tinyfish.dev"),
             keenable: env_or("KEENABLE_BASE_URL", "https://api.keenable.ai"),
+            perplexity: env_or("PERPLEXITY_BASE_URL", "https://api.perplexity.ai"),
             wikipedia: env_or("WIKIPEDIA_BASE_URL", "https://en.wikipedia.org"),
             scholar: env_or(
                 "SEMANTIC_SCHOLAR_BASE_URL",
@@ -151,8 +160,6 @@ impl Config {
             ),
             bluesky: env_or("BLUESKY_BASE_URL", "https://public.api.bsky.app"),
         };
-
-        let meta_token = first_env(&["META_ACCESS_TOKEN", "FACEBOOK_ACCESS_TOKEN"]);
 
         Self {
             user_agent: env_or(
@@ -170,35 +177,40 @@ impl Config {
             auto_allow_usd: env_f64("OMNISEARCH_AUTO_ALLOW_USD", 0.05),
             max_per_domain: env_usize("OMNISEARCH_MAX_PER_DOMAIN", 12),
             inline_max_bytes: env_usize("OMNISEARCH_INLINE_MAX_BYTES", 120_000),
+            cache_partial: env_bool("OMNISEARCH_CACHE_PARTIAL"),
+            default_mode: parse_mode(&env_or("OMNISEARCH_ROUTE", "all")),
+            ground_top: env_usize("OMNISEARCH_GROUND_TOP", 0),
+            evidence_min: env_u64("OMNISEARCH_EVIDENCE_MIN", 8) as u32,
             http_bind: env_or("OMNISEARCH_HTTP_BIND", "127.0.0.1:48731"),
             auth_tokens: split_csv(env::var("AUTH_TOKENS").ok()),
             http_rpm: env_u64("OMNISEARCH_HTTP_RPM", 120) as u32,
             request_timeout_secs: env_u64("OMNISEARCH_HTTP_TIMEOUT_SECS", 45),
             keys: ProviderKeys {
-                tavily: env::var("TAVILY_API_KEY").ok().filter(|s| !s.is_empty()),
-                exa: env::var("EXA_API_KEY").ok().filter(|s| !s.is_empty()),
-                firecrawl: env::var("FIRECRAWL_API_KEY").ok().filter(|s| !s.is_empty()),
-                linkup: env::var("LINKUP_API_KEY").ok().filter(|s| !s.is_empty()),
-                brave: env::var("BRAVE_API_KEY").ok().filter(|s| !s.is_empty()),
-                kagi: env::var("KAGI_API_KEY").ok().filter(|s| !s.is_empty()),
-                github: first_env(&["GITHUB_TOKEN", "GH_TOKEN"]),
-                x_bearer: first_env(&["X_BEARER_TOKEN", "TWITTER_BEARER_TOKEN"]),
-                xai: env::var("XAI_API_KEY").ok().filter(|s| !s.is_empty()),
+                tavily: env_key_ring("TAVILY_API_KEY"),
+                exa: env_key_ring("EXA_API_KEY"),
+                firecrawl: env_key_ring("FIRECRAWL_API_KEY"),
+                linkup: env_key_ring("LINKUP_API_KEY"),
+                brave: env_key_ring("BRAVE_API_KEY"),
+                kagi: env_key_ring("KAGI_API_KEY"),
+                github: env_key_rings(&["GITHUB_TOKEN", "GH_TOKEN"]),
+                x_bearer: env_key_rings(&["X_BEARER_TOKEN", "TWITTER_BEARER_TOKEN"]),
+                xai: env_key_ring("XAI_API_KEY"),
                 reddit_client_id: env::var("REDDIT_CLIENT_ID").ok().filter(|s| !s.is_empty()),
                 reddit_client_secret: env::var("REDDIT_CLIENT_SECRET")
                     .ok()
                     .filter(|s| !s.is_empty()),
-                youtube: first_env(&["YOUTUBE_API_KEY", "GOOGLE_API_KEY"]),
-                instagram_token: first_env(&["INSTAGRAM_ACCESS_TOKEN", "META_ACCESS_TOKEN"]),
+                youtube: env_key_rings(&["YOUTUBE_API_KEY", "GOOGLE_API_KEY"]),
+                instagram_token: env_key_rings(&["INSTAGRAM_ACCESS_TOKEN", "META_ACCESS_TOKEN"]),
                 instagram_user_id: env::var("INSTAGRAM_BUSINESS_ACCOUNT_ID")
                     .ok()
                     .filter(|s| !s.is_empty()),
-                facebook_token: meta_token,
-                youcom: first_env(&["YOU_API_KEY", "YDC_API_KEY"]),
-                parallel: env::var("PARALLEL_API_KEY").ok().filter(|s| !s.is_empty()),
-                querit: env::var("QUERIT_API_KEY").ok().filter(|s| !s.is_empty()),
-                tinyfish: env::var("TINYFISH_API_KEY").ok().filter(|s| !s.is_empty()),
-                keenable: env::var("KEENABLE_API_KEY").ok().filter(|s| !s.is_empty()),
+                facebook_token: env_key_rings(&["FACEBOOK_ACCESS_TOKEN", "META_ACCESS_TOKEN"]),
+                youcom: env_key_rings(&["YOU_API_KEY", "YDC_API_KEY"]),
+                parallel: env_key_ring("PARALLEL_API_KEY"),
+                querit: env_key_ring("QUERIT_API_KEY"),
+                tinyfish: env_key_ring("TINYFISH_API_KEY"),
+                keenable: env_key_ring("KEENABLE_API_KEY"),
+                perplexity: env_key_rings(&["PERPLEXITY_API_KEY", "PPLX_API_KEY"]),
                 mastodon_token: env::var("MASTODON_ACCESS_TOKEN")
                     .ok()
                     .filter(|s| !s.is_empty()),
@@ -214,14 +226,6 @@ impl Config {
             keenable_title: env_or("KEENABLE_TITLE", "omnisearch"),
         }
     }
-}
-
-/// First non-empty environment value.
-fn first_env(names: &[&str]) -> Option<String> {
-    names
-        .iter()
-        .filter_map(|n| env::var(n).ok())
-        .find(|s| !s.is_empty())
 }
 
 /// Environment string or default.
@@ -269,34 +273,82 @@ fn split_csv(raw: Option<String>) -> Vec<String> {
         .collect()
 }
 
-/// Parse `name|url|token,name2|url2` backend specs.
+/// Official remote MCP endpoints (tokens come from the matching env key).
+pub const OFFICIAL_MCP_REMOTES: &[(&str, &str, &str)] = &[
+    ("tavily", "https://mcp.tavily.com/mcp", "TAVILY_API_KEY"),
+    ("exa", "https://mcp.exa.ai/mcp", "EXA_API_KEY"),
+    (
+        "firecrawl",
+        "https://mcp.firecrawl.dev/mcp",
+        "FIRECRAWL_API_KEY",
+    ),
+    ("linkup", "https://mcp.linkup.so/mcp", "LINKUP_API_KEY"),
+    ("kagi", "https://kagi.com/api/mcp", "KAGI_API_KEY"),
+    (
+        "perplexity",
+        "https://mcp.perplexity.ai/mcp",
+        "PERPLEXITY_API_KEY",
+    ),
+];
+
+fn parse_mode(raw: &str) -> SearchMode {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "auto" => SearchMode::Auto,
+        "ladder" | "free_first" | "free-first" => SearchMode::Ladder,
+        _ => SearchMode::All,
+    }
+}
+
+/// Parse `name|url|token,name2|url2` plus the `official` preset token.
 fn parse_backends(raw: Option<String>) -> Vec<McpBackend> {
-    raw.unwrap_or_default()
-        .split(',')
-        .filter_map(|item| {
-            let item = item.trim();
-            if item.is_empty() {
-                return None;
-            }
-            let mut parts = item.split('|');
-            let name = parts.next()?.trim().to_string();
-            let url = parts.next()?.trim().to_string();
-            if name.is_empty() || url.is_empty() {
-                return None;
-            }
-            let token = parts
-                .next()
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(ToString::to_string);
-            Some(McpBackend { name, url, token })
+    let mut backends = Vec::new();
+    for item in raw.unwrap_or_default().split(',') {
+        let item = item.trim();
+        if item.is_empty() {
+            continue;
+        }
+        if item.eq_ignore_ascii_case("official") {
+            backends.extend(official_backends());
+            continue;
+        }
+        let mut parts = item.split('|');
+        let Some(name) = parts.next().map(str::trim).filter(|s| !s.is_empty()) else {
+            continue;
+        };
+        let Some(url) = parts.next().map(str::trim).filter(|s| !s.is_empty()) else {
+            continue;
+        };
+        let token = parts
+            .next()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(ToString::to_string);
+        backends.push(McpBackend {
+            name: name.to_string(),
+            url: url.to_string(),
+            token,
+        });
+    }
+    backends
+}
+
+fn official_backends() -> Vec<McpBackend> {
+    OFFICIAL_MCP_REMOTES
+        .iter()
+        .filter_map(|(name, url, env_name)| {
+            let token = env_key_ring(env_name).into_iter().next()?;
+            Some(McpBackend {
+                name: (*name).to_string(),
+                url: (*url).to_string(),
+                token: Some(token),
+            })
         })
         .collect()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::parse_backends;
+    use super::{OFFICIAL_MCP_REMOTES, parse_backends};
 
     #[test]
     fn parses_backend_specs() {
@@ -307,5 +359,15 @@ mod tests {
         assert_eq!(backends[0].name, "alpha");
         assert_eq!(backends[0].token.as_deref(), Some("tok"));
         assert!(backends[1].token.is_none());
+    }
+
+    #[test]
+    fn official_preset_is_documented() {
+        assert_eq!(OFFICIAL_MCP_REMOTES.len(), 6);
+        assert!(
+            OFFICIAL_MCP_REMOTES
+                .iter()
+                .any(|(name, _, _)| *name == "perplexity")
+        );
     }
 }
