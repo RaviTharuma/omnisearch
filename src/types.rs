@@ -6,10 +6,8 @@ use serde::{Deserialize, Serialize};
 /// Hard safety bound on unique merged results. Not a product default cap.
 pub const SAFETY_BOUND: usize = 10_000;
 
-/// Default Reciprocal Rank Fusion constant.
 pub const DEFAULT_RRF_K: f64 = 60.0;
 
-/// Identifiers for every built-in provider.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ProviderId {
@@ -44,7 +42,6 @@ impl ProviderId {
         &[Self::Brave, Self::Github]
     }
 
-    /// All built-in provider ids in default fan-out order.
     pub const fn all() -> &'static [Self] {
         &[
             Self::Tavily,
@@ -73,7 +70,6 @@ impl ProviderId {
         ]
     }
 
-    /// Stable wire name.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Tavily => "tavily",
@@ -102,7 +98,6 @@ impl ProviderId {
         }
     }
 
-    /// Parse a user-facing provider name, including aliases.
     pub fn parse(raw: &str) -> crate::error::Result<Self> {
         let key = raw.trim().to_ascii_lowercase();
         let id = match key.as_str() {
@@ -145,7 +140,6 @@ impl std::fmt::Display for ProviderId {
     }
 }
 
-/// How the orchestrator selects providers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum SearchMode {
@@ -158,7 +152,6 @@ pub enum SearchMode {
     Ladder,
 }
 
-/// Search vertical.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum SearchType {
@@ -174,7 +167,6 @@ pub enum SearchType {
 }
 
 impl SearchType {
-    /// Parse a search-type token, including GitHub kinds (`repo`, `code`, `users`).
     pub fn parse(raw: &str) -> crate::error::Result<Self> {
         match raw.trim().to_ascii_lowercase().as_str() {
             "web" | "general" | "repo" | "repos" | "repositories" => Ok(Self::Web),
@@ -191,7 +183,6 @@ impl SearchType {
     }
 }
 
-/// Freshness window.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Freshness {
@@ -227,7 +218,6 @@ impl Freshness {
     }
 }
 
-/// One unified search hit.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct SearchHit {
     pub title: String,
@@ -250,7 +240,6 @@ pub struct SearchHit {
 }
 
 impl SearchHit {
-    /// Construct a hit with a single originating provider.
     pub fn new(
         provider: ProviderId,
         title: impl Into<String>,
@@ -272,7 +261,6 @@ impl SearchHit {
     }
 }
 
-/// Extracted page content.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct ExtractedDoc {
     pub url: String,
@@ -282,7 +270,6 @@ pub struct ExtractedDoc {
     pub provider: String,
 }
 
-/// One page of provider results.
 #[derive(Debug, Clone, Default)]
 pub struct SearchPage {
     pub hits: Vec<SearchHit>,
@@ -290,7 +277,6 @@ pub struct SearchPage {
     pub answer: Option<String>,
 }
 
-/// Orchestrator request.
 #[derive(Debug, Clone)]
 pub struct SearchRequest {
     pub query: String,
@@ -316,7 +302,6 @@ pub struct SearchRequest {
 }
 
 impl SearchRequest {
-    /// Build a query-only request using product defaults (parallel, unlimited).
     pub fn new(query: impl Into<String>) -> Self {
         Self {
             query: query.into(),
@@ -345,7 +330,6 @@ impl SearchRequest {
     }
 }
 
-/// Per-provider search page request.
 #[derive(Debug, Clone)]
 pub struct ProviderSearchRequest<'a> {
     pub query: &'a str,
@@ -357,7 +341,6 @@ pub struct ProviderSearchRequest<'a> {
     pub language: &'a str,
 }
 
-/// Partial-success bookkeeping.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default, PartialEq)]
 pub struct RunMeta {
     pub selected: Vec<String>,
@@ -381,21 +364,18 @@ pub struct RunMeta {
     pub elapsed_ms: u64,
 }
 
-/// Provider that was selected but returned an error.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct ProviderFailure {
     pub provider: String,
     pub error: String,
 }
 
-/// Provider that was not called.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct ProviderSkip {
     pub provider: String,
     pub reason: String,
 }
 
-/// Diagnostics for a result set.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct QualityReport {
     pub unique_results: u32,
@@ -406,14 +386,12 @@ pub struct QualityReport {
     pub top_domains: Vec<DomainCount>,
 }
 
-/// Domain frequency.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct DomainCount {
     pub domain: String,
     pub count: u32,
 }
 
-/// Unified search response.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct SearchResponse {
     pub query: String,
@@ -429,7 +407,6 @@ pub struct SearchResponse {
     pub delivery: Option<Delivery>,
 }
 
-/// Inline vs file delivery.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct Delivery {
     pub mode: String,
@@ -438,7 +415,6 @@ pub struct Delivery {
     pub bytes: u64,
 }
 
-/// Non-secret provider metadata.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ProviderInfo {
     pub id: String,
@@ -468,7 +444,6 @@ pub struct ProviderHealth {
     pub notes: String,
 }
 
-/// Extract request.
 #[derive(Debug, Clone)]
 pub struct ExtractRequest {
     pub urls: Vec<String>,
@@ -476,14 +451,12 @@ pub struct ExtractRequest {
     pub timeout_seconds: Option<u64>,
 }
 
-/// Extract response.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ExtractResponse {
     pub documents: Vec<ExtractedDoc>,
     pub meta: RunMeta,
 }
 
-/// Research-mode response.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ResearchResponse {
     pub search: SearchResponse,
