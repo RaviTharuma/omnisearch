@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use omnisearch::config::Config;
 use omnisearch::orchestrator::{AppState, search};
-use omnisearch::types::{ProviderId, SearchMode, SearchRequest};
+use omnisearch::types::{ProviderId, SearchMode, SearchRequest, SearchType};
 use serde_json::json;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -393,4 +393,129 @@ async fn search_health_reports_requires_key_and_latency() {
     assert!(tavily.last_latency_ms.is_some());
     let wiki = health.iter().find(|h| h.id == "wikipedia").expect("wiki");
     assert!(!wiki.requires_key);
+}
+
+fn isolate_must_have(brave: &str, github: &str) -> Config {
+    let mut config = Config::from_env();
+    config.keys = Default::default();
+    config.keys.brave = vec!["brave-test".into()];
+    config.keys.github = vec!["github-test".into()];
+    config.keenable_public = false;
+    config.mcp_backends.clear();
+    config.endpoints.brave = brave.to_string();
+    config.endpoints.github = github.to_string();
+    config.endpoints.tavily = "http://127.0.0.1:9".into();
+    config.endpoints.exa = "http://127.0.0.1:9".into();
+    config.endpoints.wikipedia = "http://127.0.0.1:9".into();
+    config.endpoints.scholar = "http://127.0.0.1:9".into();
+    config.endpoints.bluesky = "http://127.0.0.1:9".into();
+    config.endpoints.reddit = "http://127.0.0.1:9".into();
+    config.endpoints.reddit_oauth = "http://127.0.0.1:9".into();
+    config.auto_allow_usd = 1.0;
+    config.default_timeout_secs = 5;
+    config.cache_ttl_secs = 60;
+    config
+}
+
+#[tokio::test]
+async fn default_fanout_includes_brave_and_github_when_keyed() {
+    let brave = MockServer::start().await;
+    let github = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/res/v1/web/search"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "web": {"results": [
+                {"title":"Brave hit","url":"https://brave.example/a","description":"from brave"}
+            ]}
+        })))
+        .mount(&brave)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "items": [{
+                "full_name": "acme/widget",
+                "html_url": "https://github.com/acme/widget",
+                "description": "from github"
+            }]
+        })))
+        .mount(&github)
+        .await;
+
+    let state = AppState::new(isolate_must_have(&brave.uri(), &github.uri())).unwrap();
+    let mut req = SearchRequest::new("widget search");
+    req.providers = None;
+    req.mode = SearchMode::All;
+    req.no_cache = true;
+    let out = search(&state, req).await;
+
+    assert!(
+        out.meta.selected.contains(&"brave".into()),
+        "brave must be selected in default fan-out: {:?}",
+        out.meta.selected
+    );
+    assert!(
+        out.meta.selected.contains(&"github".into()),
+        "github must be selected in default fan-out: {:?}",
+        out.meta.selected
+    );
+    assert!(out.meta.successful.contains(&"brave".into()));
+    assert!(out.meta.successful.contains(&"github".into()));
+    assert!(out.results.iter().any(|h| h.url.contains("brave.example")));
+    assert!(
+        out.results
+            .iter()
+            .any(|h| h.url.contains("github.com/acme/widget"))
+    );
+}
+
+#[tokio::test]
+async fn github_users_and_code_kinds() {
+    let github = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/search/users"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "items": [{
+                "login": "octocat",
+                "html_url": "https://github.com/octocat",
+                "type": "User",
+                "score": 1.0
+            }]
+        })))
+        .mount(&github)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/search/code"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "items": [{
+                "path": "src/lib.rs",
+                "html_url": "https://github.com/acme/widget/blob/main/src/lib.rs",
+                "repository": {"full_name": "acme/widget"},
+                "text_matches": [{"fragment": "pub fn search"}]
+            }]
+        })))
+        .mount(&github)
+        .await;
+
+    let mut config = isolate_must_have("http://127.0.0.1:9", &github.uri());
+    config.keys.brave.clear();
+    let state = AppState::new(config).unwrap();
+
+    let mut users = SearchRequest::new("octocat");
+    users.providers = Some(vec![ProviderId::Github]);
+    users.search_type = SearchType::Users;
+    users.no_cache = true;
+    let user_out = search(&state, users).await;
+    assert_eq!(user_out.results[0].title, "octocat");
+    assert_eq!(user_out.results[0].url, "https://github.com/octocat");
+
+    let mut code = SearchRequest::new("pub fn search");
+    code.providers = Some(vec![ProviderId::Github]);
+    code.search_type = SearchType::Code;
+    code.no_cache = true;
+    let code_out = search(&state, code).await;
+    assert_eq!(code_out.results[0].title, "acme/widget: src/lib.rs");
+    assert!(code_out.results[0].snippet.contains("pub fn search"));
 }
