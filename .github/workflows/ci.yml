@@ -4,9 +4,13 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
+
+permissions:
+  contents: write
 
 jobs:
   check:
@@ -25,3 +29,16 @@ jobs:
         run: cargo clippy --all-targets -- -D warnings
       - name: test
         run: cargo test --all
+      - name: Commit lockfile when missing
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          git add Cargo.lock
+          if git diff --cached --quiet -- Cargo.lock; then
+            echo 'Cargo.lock already tracked'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Add Cargo.lock for reproducible builds.'
+          git push
