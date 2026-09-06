@@ -22,7 +22,6 @@ use crate::types::{
     SearchRequest, SearchResponse,
 };
 
-/// Shared process state.
 pub struct AppState {
     pub config: Config,
     pub http: HttpClient,
@@ -98,7 +97,6 @@ impl Fanout {
     }
 }
 
-/// Run a unified search.
 pub async fn search(state: &AppState, request: SearchRequest) -> SearchResponse {
     let started = Instant::now();
     let cache_key = SearchCache::key(&[
@@ -494,7 +492,6 @@ async fn ground_hits(
     }
 }
 
-/// Tiered extract cascade with SSRF guards.
 pub async fn extract(state: &AppState, request: ExtractRequest) -> ExtractResponse {
     let started = Instant::now();
     let mut meta = RunMeta {
@@ -590,7 +587,6 @@ pub async fn extract(state: &AppState, request: ExtractRequest) -> ExtractRespon
     ExtractResponse { documents, meta }
 }
 
-/// Fan-out search then extract top URLs under a remaining time budget.
 pub async fn research(
     state: &AppState,
     mut request: SearchRequest,
@@ -629,7 +625,6 @@ pub async fn research(
     }
 }
 
-/// Direct fetch fallback used by web_extract when vendors fail.
 pub async fn direct_fetch(state: &AppState, url: &str) -> crate::error::Result<ExtractedDoc> {
     let safe = assert_public_http_url(url)?;
     let response = state.http.get(safe.as_str()).send().await?;
