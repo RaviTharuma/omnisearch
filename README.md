@@ -1,14 +1,22 @@
 # omnisearch
 
-**Multi-provider Rust MCP search server.** Unified [Model Context Protocol](https://modelcontextprotocol.io) tools that fan out across Tavily, Exa, Firecrawl, Linkup, Brave, and more — then RRF-merge and dedupe results from one tool surface.
+Give your AI **parallel web search** across many engines at once — so it finds sources a single search (or the model alone) usually misses.
 
-Default behavior: **fan out in parallel** to every configured provider, **RRF-merge** results, and **dedupe by URL/title** while keeping `sources[]` provenance. There is **no small product cap** on result count. `limit` is an optional per-provider fetch hint. Omit it (or set `unlimited: true`) to page until providers exhaust or the **10,000 unique-result safety bound** (`OMNISEARCH_SAFETY_BOUND`).
+One MCP server. Point Claude, Cursor, or any MCP client at it. Drop in the API keys you already have.
 
-Budgets (`max_providers`, `timeout_seconds`, `budget_usd`) cap **spend, fan-out width, and time** — not a tiny result ceiling.
+**Why people use it**
 
-License: Apache-2.0. Copyright 2026 Ravi Tharuma.
+- **Parallel by default** — queries hit several search engines together, not one at a time
+- **Better coverage** — merges and dedupes results so you see the overlap *and* the unique hits
+- **More than “just Google”** — web, news, code, papers, and social in one place
+- **Research mode** — search, then pull the best pages when you need depth
+- **No tiny result ceiling** — optional limits for cost/time; not a hard “top 5” product cap
 
-## Install
+Works with the keys you already use (Tavily, Exa, Brave, Firecrawl, Linkup, and more). Missing keys are simply skipped.
+
+License: Apache-2.0 · Copyright 2026 Ravi Tharuma
+
+## Quick start
 
 ```bash
 git clone https://github.com/RaviTharuma/omnisearch.git
@@ -16,22 +24,12 @@ cd omnisearch
 cargo install --path .
 ```
 
-Binary name: `omnisearch`.
+Copy `.env.example` to `.env` and add any keys you have.
 
 ```bash
-# MCP over stdio (default)
-omnisearch
-
-# Streamable HTTP
-omnisearch http
-
-# Provider latency bench
-omnisearch bench --query "rust async"
+omnisearch          # MCP over stdio (default)
+omnisearch http     # optional HTTP transport
 ```
-
-Copy `.env.example` to `.env` and set the keys you have. Missing keys are skipped, not fatal.
-
-## MCP client wiring
 
 ### Claude Desktop
 
@@ -70,7 +68,7 @@ Copy `.env.example` to `.env` and set the keys you have. Missing keys are skippe
 }
 ```
 
-### mcpick / generic
+### Any MCP client
 
 ```json
 {
@@ -81,104 +79,90 @@ Copy `.env.example` to `.env` and set the keys you have. Missing keys are skippe
 }
 ```
 
-HTTP transport (optional):
+HTTP (optional):
 
 ```bash
 AUTH_TOKENS=replace-me OMNISEARCH_HTTP_BIND=127.0.0.1:48731 omnisearch http
 ```
 
-Clients that speak streamable HTTP can use `http://127.0.0.1:48731/mcp` with `Authorization: Bearer replace-me`. `OMNISEARCH_HTTP_RPM` rate-limits per token.
+Then connect to `http://127.0.0.1:48731/mcp` with `Authorization: Bearer replace-me`.
 
-## Tools
+## What you can do
 
-| Tool | Purpose |
+| Tool | What it does |
 | --- | --- |
-| `search` | Parallel fan-out + RRF merge. Default `mode=all`. `mode=auto` uses query intent + health. |
-| `ai_search` | Answer-oriented subset (Tavily/Kagi/You.com/Exa when configured). |
-| `research` | Search, then extract top URLs under a time budget. |
-| `extract` / `web_extract` | Vendor extract cascade, then SSRF-safe direct fetch. |
-| `tavily_search` `exa_search` `linkup_search` `brave_search` `kagi_search` | Single-provider web search. |
-| `x_search` `reddit_search` `youtube_search` `instagram_search` `facebook_search` | Social. |
-| `github_search` | Repositories (`kind=repo`) or code (`kind=code`). |
-| `firecrawl_scrape` `firecrawl_crawl` `firecrawl_map` | Firecrawl site tools. |
-| `get_provider_info` | Non-secret metadata (configured, cost, notes). |
-| `quality_report` | Domain diversity / coverage diagnostics. |
-| `provider_bench` | Latency/error bench for configured providers. |
+| `search` | Parallel multi-engine search (default). Auto mode picks engines from the query. |
+| `ai_search` | Answer-oriented search when you want synthesis-friendly results |
+| `research` | Search, then extract the top pages under a time budget |
+| `extract` / `web_extract` | Pull clean content from URLs |
+| `tavily_search` `exa_search` `linkup_search` `brave_search` `kagi_search` | Single-engine search when you want one provider |
+| `x_search` `reddit_search` `youtube_search` `instagram_search` `facebook_search` | Social |
+| `github_search` | Repos or code |
+| `firecrawl_scrape` `firecrawl_crawl` `firecrawl_map` | Site scrape / crawl / map |
+| `get_provider_info` | Which engines are configured (no secrets) |
+| `quality_report` | Coverage / diversity diagnostics |
+| `provider_bench` | Quick latency check across engines |
 
-`search` arguments (stable JSON):
+Example `search` call:
 
 ```json
 {
   "query": "Swiss AI regulation 2026",
   "providers": ["tavily", "exa", "brave"],
-  "limit": 20,
-  "unlimited": false,
-  "mode": "all",
   "search_type": "news",
   "freshness": "week",
   "country": "CH",
-  "language": "de",
-  "max_providers": 8,
-  "timeout_seconds": 20,
-  "budget_usd": 0.05,
-  "no_cache": false,
-  "quality_report": true
+  "language": "de"
 }
 ```
 
-Unified hit shape: `title`, `url`, `snippet`, `provider`, `score?`, `published_at?`, `sources[]`.
+Each hit includes title, URL, snippet, and which engines found it (`sources[]`). If some engines fail, you still get results from the ones that worked.
 
-Responses include partial-success metadata: `selected`, `successful`, `failed`, `timed_out`, `skipped`.
+## Engines
 
-## Providers
+Add the keys you have — everything else is ignored. Wikipedia, Semantic Scholar, Bluesky, and Reddit public search work with no key.
 
-Providers are env-gated. Unconfigured ones are skipped. Wikipedia, Semantic Scholar, Bluesky public search, and Reddit public JSON work without keys.
+| Engine | Env | Search | Extract |
+| --- | --- | --- | --- |
+| Tavily | `TAVILY_API_KEY` | yes | yes |
+| Exa | `EXA_API_KEY` | yes | yes |
+| Firecrawl | `FIRECRAWL_API_KEY` | yes | yes |
+| Linkup | `LINKUP_API_KEY` | yes | — |
+| Brave | `BRAVE_API_KEY` | yes | — |
+| Kagi | `KAGI_API_KEY` | yes | — |
+| You.com | `YOU_API_KEY` or `YDC_API_KEY` | yes | yes |
+| Parallel.ai | `PARALLEL_API_KEY` | yes | yes |
+| Querit | `QUERIT_API_KEY` | yes | yes |
+| TinyFish | `TINYFISH_API_KEY` | yes | — |
+| Keenable | `KEENABLE_API_KEY` or `KEENABLE_PUBLIC=true` | yes | keyed |
+| GitHub | `GITHUB_TOKEN` | yes | — |
+| X | `X_BEARER_TOKEN` or `XAI_API_KEY` | yes | — |
+| Reddit | none, or OAuth pair | yes | — |
+| YouTube | `YOUTUBE_API_KEY` or `GOOGLE_API_KEY` | yes | — |
+| Instagram | Graph token + business account | hashtag | — |
+| Facebook | `FACEBOOK_ACCESS_TOKEN` | pages | — |
+| Wikipedia | none | yes | — |
+| Scholar | none | yes | — |
+| Mastodon | `MASTODON_INSTANCE` | yes | — |
+| Bluesky | none | yes | — |
+| Extra MCP backends | `OMNISEARCH_MCP_BACKENDS` | yes | — |
 
-| Provider | Env | Search | Extract | Notes |
-| --- | --- | --- | --- | --- |
-| Tavily | `TAVILY_API_KEY` | yes | yes | News topic + time_range |
-| Exa | `EXA_API_KEY` | yes | yes | Neural/keyword + `/contents` |
-| Firecrawl | `FIRECRAWL_API_KEY` | yes | yes | scrape / crawl / map |
-| Linkup | `LINKUP_API_KEY` | yes | — | `outputType=searchResults` |
-| Brave | `BRAVE_API_KEY` | yes | — | Web + news, locale, freshness |
-| Kagi | `KAGI_API_KEY` | yes | — | `Authorization: Bot …` |
-| You.com | `YOU_API_KEY` or `YDC_API_KEY` | yes | yes | `ydc-index.io/v1/search` |
-| Parallel.ai | `PARALLEL_API_KEY` | yes | yes | `/v1/search`, `/v1/extract` |
-| Querit | `QUERIT_API_KEY` | yes | yes | Multilingual filters |
-| TinyFish | `TINYFISH_API_KEY` | yes | — | Source-only |
-| Keenable | `KEENABLE_API_KEY` or `KEENABLE_PUBLIC=true` | yes | yes (keyed) | Public tier is keyless + rate limited |
-| GitHub | `GITHUB_TOKEN` | yes | — | Repos / code |
-| X | `X_BEARER_TOKEN` or `XAI_API_KEY` | yes | — | X API v2 recent search, else xAI `x_search` |
-| Reddit | none, or `REDDIT_CLIENT_ID` + `REDDIT_CLIENT_SECRET` | yes | — | `search.json` + User-Agent; OAuth when set |
-| YouTube | `YOUTUBE_API_KEY` or `GOOGLE_API_KEY` | yes | — | Data API v3 `search.list` |
-| Instagram | `INSTAGRAM_ACCESS_TOKEN` + `INSTAGRAM_BUSINESS_ACCOUNT_ID` | hashtag | — | Official Graph hashtag API only. No free-text post search. |
-| Facebook | `FACEBOOK_ACCESS_TOKEN` or `META_ACCESS_TOKEN` | pages | — | Official `/pages/search` only. Public post keyword search is not available. |
-| Wikipedia | none | yes | — | MediaWiki search |
-| Scholar | none | yes | — | Semantic Scholar paper search |
-| Mastodon | `MASTODON_INSTANCE` (+ optional token) | yes | — | `/api/v2/search` |
-| Bluesky | none | yes | — | `app.bsky.feed.searchPosts` |
-| MCP backends | `OMNISEARCH_MCP_BACKENDS` | yes | — | `name\|url\|token,...` |
+See `.env.example` for the full list.
 
 ### Social API limits
 
-- **Instagram**: official hashtag search (`/ig_hashtag_search` + `/recent_media`). Queries are reduced to a hashtag. Meta caps unique hashtags (30 / 7 days).
-- **Facebook**: official Pages Search. Graph no longer offers public post keyword search.
-- **X**: prefer `X_BEARER_TOKEN` against `https://api.x.com/2/tweets/search/recent`. `XAI_API_KEY` uses `POST https://api.x.ai/v1/responses` with `{ "type": "x_search" }`.
+- **Instagram**: official hashtag search only (Meta rate limits apply).
+- **Facebook**: official Pages Search only.
+- **X**: prefer `X_BEARER_TOKEN`; `XAI_API_KEY` uses xAI’s `x_search` path.
 
-## Orchestration
+## How it works (optional detail)
 
-- **Parallel default**: all configured providers, `tokio` join.
-- **RRF**: `score += 1 / (k + rank)` with `OMNISEARCH_RRF_K` (default 60).
-- **Dedupe**: normalized URL (tracking params stripped) and near-duplicate titles. `sources[]` lists every contributing provider.
-- **Failover**: 429 / timeouts start a cooldown (`OMNISEARCH_COOLDOWN_SECS`). Auto routes skip cooling providers.
-- **Adaptive routing**: `mode=auto` ranks by recent success and query intent (news, code, social, scholarly, video).
-- **Cost gates**: `OMNISEARCH_AUTO_ALLOW_USD` skips expensive providers unless they are explicitly listed.
-- **Cache**: in-process TTL (`OMNISEARCH_CACHE_TTL_SECS`). Pass `no_cache: true` to bypass.
-- **Spam / diversity**: drops known shortener hosts; prefers domain diversity (`OMNISEARCH_MAX_PER_DOMAIN`) then appends overflow.
-- **Freshness**: `day` / `week` / `month` / `year` forwarded to vendors and applied when `published_at` is parseable.
-- **Locale**: `OMNISEARCH_COUNTRY` default `CH`, `OMNISEARCH_LANGUAGE` default `de`.
-- **SSRF**: extract/direct-fetch blocks loopback, link-local, private IPs, `file:`, and metadata hosts.
-- **Large payloads**: if JSON exceeds `OMNISEARCH_INLINE_MAX_BYTES`, results spill to a temp file and `delivery.mode` becomes `file`.
+- Runs configured engines **in parallel**, then merges and dedupes by URL/title
+- Keeps provenance (`sources[]`) so you know who found each hit
+- Retries / cools down after rate limits and outages; auto mode skips unhealthy engines
+- Optional budgets for time, width, and estimated cost — not a tiny fixed result cap
+- Freshness filters (`day` / `week` / `month` / `year`) and locale defaults (`OMNISEARCH_COUNTRY`, `OMNISEARCH_LANGUAGE`)
+- Safe extract path (blocks private/local addresses)
 
 ## Development
 
@@ -188,8 +172,6 @@ cargo clippy --all-targets -- -D warnings
 cargo test
 cargo build --release
 ```
-
-Requires Rust 1.88+.
 
 ## Version
 
