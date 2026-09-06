@@ -12,14 +12,12 @@ use crate::error::Error;
 use crate::orchestrator::{AppState, direct_fetch, extract, research, search};
 use crate::types::{ExtractRequest, Freshness, ProviderId, SearchMode, SearchRequest, SearchType};
 
-/// MCP server holding shared state.
 #[derive(Clone)]
 pub struct OmniServer {
     pub state: Arc<AppState>,
 }
 
 impl OmniServer {
-    /// Wrap process state.
     pub fn new(state: Arc<AppState>) -> Self {
         Self { state }
     }
@@ -81,7 +79,6 @@ impl OmniServer {
     }
 }
 
-/// Unified search arguments.
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 pub struct SearchParams {
     pub query: String,
@@ -112,7 +109,6 @@ pub struct SearchParams {
     pub evidence_min: Option<u32>,
 }
 
-/// Provider-specific search.
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 pub struct QueryParams {
     pub query: String,
@@ -121,7 +117,6 @@ pub struct QueryParams {
     pub freshness: Option<String>,
 }
 
-/// Extract arguments.
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 pub struct ExtractParams {
     pub urls: Vec<String>,
@@ -129,7 +124,6 @@ pub struct ExtractParams {
     pub timeout_seconds: Option<u64>,
 }
 
-/// Research arguments.
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 pub struct ResearchParams {
     pub query: String,
@@ -140,13 +134,11 @@ pub struct ResearchParams {
     pub search_type: Option<String>,
 }
 
-/// Firecrawl scrape.
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 pub struct UrlParams {
     pub url: String,
 }
 
-/// Firecrawl crawl.
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 pub struct CrawlParams {
     pub url: String,
@@ -154,7 +146,6 @@ pub struct CrawlParams {
     pub timeout_seconds: Option<u64>,
 }
 
-/// Firecrawl map.
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 pub struct MapParams {
     pub url: String,
@@ -162,13 +153,11 @@ pub struct MapParams {
     pub limit: Option<u32>,
 }
 
-/// Bench arguments.
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 pub struct BenchParams {
     pub query: Option<String>,
 }
 
-/// GitHub search arguments.
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 pub struct GithubParams {
     pub query: String,
