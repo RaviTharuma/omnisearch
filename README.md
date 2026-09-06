@@ -120,7 +120,7 @@ Run meta: `selected`, `successful`, `failed`, `timed_out`, `skipped`, `cost_usd`
 Unconfigured engines are skipped. Wikipedia, Semantic Scholar, Bluesky, and Reddit public JSON work without keys. Brave (`BRAVE_API_KEY`) and GitHub (`GITHUB_TOKEN` / `GITHUB_API_KEY`) join the default run when set.
 
 | Provider | Env | Search | Extract | Notes |
-| --- | --- |
+| --- | --- | --- | --- | --- |
 | Brave | `BRAVE_API_KEY` | yes | — | Web + news. On by default when set. |
 | GitHub | `GITHUB_TOKEN` or `GITHUB_API_KEY` | yes | — | Repos, code, users. On by default when set. |
 | Tavily | `TAVILY_API_KEY` | yes | yes | News topic + time_range |
@@ -143,7 +143,7 @@ Unconfigured engines are skipped. Wikipedia, Semantic Scholar, Bluesky, and Redd
 | Scholar | none | yes | — | Semantic Scholar |
 | Mastodon | `MASTODON_INSTANCE` | yes | — | `/api/v2/search` |
 | Bluesky | none | yes | — | `app.bsky.feed.searchPosts` |
-| MCP backends | `OMNISEARCH_MCP_BACKENDS` | yes | — | `name\|url\|token,...` or `official` |
+| MCP backends | `OMNISEARCH_MCP_BACKENDS` | yes | — | `name|url|token,...` or `official` |
 
 `OMNISEARCH_MCP_BACKENDS=official` attaches remotes that have keys: Tavily, Exa, Firecrawl, Linkup, Kagi, Perplexity.
 
