@@ -5,7 +5,7 @@ mod brave;
 mod exa;
 mod facebook;
 pub mod firecrawl;
-mod github;
+pub mod github;
 mod instagram;
 mod kagi;
 mod keenable;
