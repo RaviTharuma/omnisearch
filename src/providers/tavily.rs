@@ -12,7 +12,7 @@ use super::{Provider, freshness_token, hit_from_value};
 
 pub struct Tavily {
     http: HttpClient,
-    key: Option<String>,
+    keys: Vec<String>,
     base: String,
 }
 
@@ -20,7 +20,7 @@ impl Tavily {
     pub fn new(config: &Config, http: HttpClient) -> Self {
         Self {
             http,
-            key: config.keys.tavily.clone(),
+            keys: config.keys.tavily.clone(),
             base: config.endpoints.tavily.clone(),
         }
     }
@@ -32,10 +32,12 @@ impl Provider for Tavily {
         ProviderId::Tavily
     }
     fn is_configured(&self) -> bool {
-        self.key.is_some()
+        !self.keys.is_empty()
     }
     fn skip_reason(&self) -> Option<String> {
-        self.key.is_none().then(|| "TAVILY_API_KEY not set".into())
+        self.keys
+            .is_empty()
+            .then(|| "TAVILY_API_KEY not set".into())
     }
     fn supports_extract(&self) -> bool {
         true
@@ -47,17 +49,28 @@ impl Provider for Tavily {
         20
     }
     fn notes(&self) -> &'static str {
-        "Web search and URL extract. Supports news topic and time_range."
+        "Web search and URL extract. Supports news topic and time_range. Dual-key: TAVILY_API_KEY_2."
     }
 
     async fn search(&self, request: &ProviderSearchRequest<'_>) -> Result<SearchPage> {
-        let key = self
-            .key
-            .as_deref()
-            .ok_or_else(|| crate::error::Error::NotConfigured {
-                provider: "tavily".into(),
-                reason: "TAVILY_API_KEY not set".into(),
-            })?;
+        crate::try_keys!(&self.keys, "tavily", "TAVILY_API_KEY not set", |key| self
+            .search_with(key, request)
+            .await,)
+    }
+
+    async fn extract(&self, urls: &[String]) -> Result<Vec<ExtractedDoc>> {
+        crate::try_keys!(&self.keys, "tavily", "TAVILY_API_KEY not set", |key| self
+            .extract_with(key, urls)
+            .await,)
+    }
+}
+
+impl Tavily {
+    async fn search_with(
+        &self,
+        key: &str,
+        request: &ProviderSearchRequest<'_>,
+    ) -> Result<SearchPage> {
         let mut body = json!({
             "query": request.query,
             "max_results": request.page_size.min(20),
@@ -100,14 +113,7 @@ impl Provider for Tavily {
         })
     }
 
-    async fn extract(&self, urls: &[String]) -> Result<Vec<ExtractedDoc>> {
-        let key = self
-            .key
-            .as_deref()
-            .ok_or_else(|| crate::error::Error::NotConfigured {
-                provider: "tavily".into(),
-                reason: "TAVILY_API_KEY not set".into(),
-            })?;
+    async fn extract_with(&self, key: &str, urls: &[String]) -> Result<Vec<ExtractedDoc>> {
         let (_, value) = self
             .http
             .send_json(

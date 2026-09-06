@@ -12,7 +12,7 @@ use super::Provider;
 
 pub struct Instagram {
     http: HttpClient,
-    token: Option<String>,
+    tokens: Vec<String>,
     user_id: Option<String>,
     base: String,
 }
@@ -21,7 +21,7 @@ impl Instagram {
     pub fn new(config: &Config, http: HttpClient) -> Self {
         Self {
             http,
-            token: config.keys.instagram_token.clone(),
+            tokens: config.keys.instagram_token.clone(),
             user_id: config.keys.instagram_user_id.clone(),
             base: config.endpoints.meta_graph.clone(),
         }
@@ -52,7 +52,7 @@ impl Provider for Instagram {
         ProviderId::Instagram
     }
     fn is_configured(&self) -> bool {
-        self.token.is_some() && self.user_id.is_some()
+        !self.tokens.is_empty() && self.user_id.is_some()
     }
     fn skip_reason(&self) -> Option<String> {
         if self.is_configured() {
@@ -72,10 +72,21 @@ impl Provider for Instagram {
     }
 
     async fn search(&self, request: &ProviderSearchRequest<'_>) -> Result<SearchPage> {
-        let token = self.token.as_deref().ok_or_else(|| Error::NotConfigured {
-            provider: "instagram".into(),
-            reason: "INSTAGRAM_ACCESS_TOKEN not set".into(),
-        })?;
+        crate::try_keys!(
+            &self.tokens,
+            "instagram",
+            "INSTAGRAM_ACCESS_TOKEN not set",
+            |token| self.search_with(token, request).await,
+        )
+    }
+}
+
+impl Instagram {
+    async fn search_with(
+        &self,
+        token: &str,
+        request: &ProviderSearchRequest<'_>,
+    ) -> Result<SearchPage> {
         let user_id = self
             .user_id
             .as_deref()

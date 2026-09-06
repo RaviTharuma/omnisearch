@@ -13,6 +13,7 @@ mod linkup;
 mod mastodon;
 mod mcp_backend;
 mod parallel;
+mod perplexity;
 mod querit;
 mod reddit;
 mod scholar;
@@ -63,6 +64,10 @@ pub trait Provider: Send + Sync {
     fn notes(&self) -> &'static str {
         ""
     }
+    /// Whether a secret is required for this backend to run.
+    fn requires_key(&self) -> bool {
+        true
+    }
     /// Execute one result page.
     async fn search(&self, request: &ProviderSearchRequest<'_>) -> Result<SearchPage>;
     /// Extract documents when supported.
@@ -78,6 +83,7 @@ pub trait Provider: Send + Sync {
             search: self.supports_search(),
             extract: self.supports_extract(),
             estimated_search_usd: self.estimated_search_usd(),
+            requires_key: self.requires_key(),
             notes: self.notes().to_string(),
         }
     }
@@ -103,6 +109,7 @@ impl Registry {
             Arc::new(querit::Querit::new(config, http.clone())),
             Arc::new(tinyfish::TinyFish::new(config, http.clone())),
             Arc::new(keenable::Keenable::new(config, http.clone())),
+            Arc::new(perplexity::Perplexity::new(config, http.clone())),
             Arc::new(github::Github::new(config, http.clone())),
             Arc::new(reddit::Reddit::new(config, http.clone())),
             Arc::new(xsearch::XSearch::new(config, http.clone())),

@@ -64,6 +64,9 @@ impl Provider for Reddit {
     fn estimated_search_usd(&self) -> f64 {
         0.0
     }
+    fn requires_key(&self) -> bool {
+        false
+    }
     fn max_page_size(&self) -> u32 {
         100
     }
