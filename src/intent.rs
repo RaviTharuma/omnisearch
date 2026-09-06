@@ -57,6 +57,11 @@ fn intent_subset(query: &str, vertical: SearchType, configured: &[ProviderId]) -
         || q.contains("headline")
     {
         SearchType::News
+    } else if matches!(vertical, SearchType::Users)
+        || q.contains("github user")
+        || q.contains("github org")
+    {
+        SearchType::Users
     } else if matches!(vertical, SearchType::Code)
         || q.contains("github")
         || q.contains("npm ")
@@ -93,6 +98,7 @@ fn intent_subset(query: &str, vertical: SearchType, configured: &[ProviderId]) -
             ProviderId::Exa,
         ]),
         SearchType::Code => want.extend([ProviderId::Github, ProviderId::Exa, ProviderId::Tavily]),
+        SearchType::Users => want.extend([ProviderId::Github]),
         SearchType::Video => want.extend([ProviderId::Youtube, ProviderId::Exa]),
         SearchType::Scholarly => {
             want.extend([ProviderId::Scholar, ProviderId::Wikipedia, ProviderId::Exa])
@@ -126,6 +132,42 @@ mod tests {
         let health = HealthBoard::new();
         let selected = select_providers(&req, &configured, &health, false);
         assert!(selected.contains(&ProviderId::Github));
+    }
+
+    #[test]
+    fn auto_routes_github_users() {
+        let mut req = SearchRequest::new("github user octocat");
+        req.mode = SearchMode::Auto;
+        let configured = vec![
+            ProviderId::Github,
+            ProviderId::Brave,
+            ProviderId::Tavily,
+            ProviderId::Exa,
+        ];
+        let health = HealthBoard::new();
+        let selected = select_providers(&req, &configured, &health, false);
+        assert_eq!(selected, vec![ProviderId::Github]);
+    }
+
+    #[test]
+    fn default_all_includes_must_have_when_configured() {
+        let req = SearchRequest::new("swiss ai regulation");
+        let configured = ProviderId::must_have().to_vec();
+        let health = HealthBoard::new();
+        let selected = select_providers(&req, &configured, &health, false);
+        assert!(selected.contains(&ProviderId::Brave));
+        assert!(selected.contains(&ProviderId::Github));
+    }
+
+    #[test]
+    fn must_have_is_brave_and_github() {
+        assert_eq!(
+            ProviderId::must_have(),
+            &[ProviderId::Brave, ProviderId::Github]
+        );
+        for id in ProviderId::must_have() {
+            assert!(ProviderId::all().contains(id));
+        }
     }
 
     #[test]
