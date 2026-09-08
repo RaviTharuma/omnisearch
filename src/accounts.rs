@@ -258,10 +258,18 @@ impl Provider for AccountProvider {
         self.metadata.supports_extract()
     }
     fn estimated_search_usd(&self) -> f64 {
-        self.metadata.estimated_search_usd()
+        // Admission must cover every account rotation or failover can select.
+        self.accounts
+            .iter()
+            .map(|account| account.provider.estimated_search_usd())
+            .fold(0.0, f64::max)
     }
     fn max_page_size(&self) -> u32 {
-        self.metadata.max_page_size()
+        self.accounts
+            .iter()
+            .map(|account| account.provider.max_page_size())
+            .min()
+            .unwrap_or(1)
     }
     fn notes(&self) -> &'static str {
         self.metadata.notes()

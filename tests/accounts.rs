@@ -42,6 +42,61 @@ fn wrapped(c: &Config, id: ProviderId) -> accounts::WrappedProviders {
     .unwrap()
 }
 
+#[tokio::test]
+async fn mixed_x_accounts_never_call_paid_fallback_without_auto_allowance() {
+    use omnisearch::orchestrator::{AppState, search};
+    use types::SearchRequest;
+
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/2/tweets/search/recent"))
+        .respond_with(ResponseTemplate::new(503))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "output": []
+        })))
+        .expect(0)
+        .mount(&server)
+        .await;
+    let mut c = config();
+    c.gateways.clear();
+    c.gateways_error = None;
+    // This is the config value populated by OMNISEARCH_AUTO_ALLOW_USD=0.
+    // Do not mutate process-wide environment in a concurrent test suite.
+    c.auto_allow_usd = 0.0;
+    c.accounts = parse(
+        r#"[
+        {"provider":"x","name":"bearer","credentials":{"bearer_token":"mock-bearer"}},
+        {"provider":"x","name":"paid","credentials":{"xai_api_key":"mock-paid"}}
+    ]"#,
+    );
+    c.endpoints.x = server.uri();
+    c.endpoints.xai = server.uri();
+    c.endpoints.wikipedia = server.uri();
+    c.endpoints.scholar = server.uri();
+    c.endpoints.bluesky = server.uri();
+    c.endpoints.reddit = server.uri();
+    c.endpoints.reddit_oauth = server.uri();
+    for _ in 0..2 {
+        let state = AppState::new(c.clone()).unwrap();
+        let result = search(&state, SearchRequest::new("mixed account admission")).await;
+        assert!(
+            server
+                .received_requests()
+                .await
+                .unwrap()
+                .iter()
+                .all(|request| request.url.path() != "/v1/responses"),
+            "automatic admission must never execute a paid named account"
+        );
+        assert!(result.meta.skipped.iter().any(|skip| skip.provider == "x"));
+        c.accounts.reverse();
+    }
+}
+
 #[test]
 fn validates_typed_credentials_and_redacts_secrets() {
     let mut c = config();
