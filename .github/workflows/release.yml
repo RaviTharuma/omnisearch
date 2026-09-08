@@ -1,0 +1,156 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate tag against package and lockfile
+        id: version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import tomllib
+          from pathlib import Path
+
+          package = tomllib.loads(Path('Cargo.toml').read_text())['package']
+          version = package['version']
+          if os.environ['RELEASE_TAG'] != f'v{version}':
+              raise SystemExit('Release tag must exactly match Cargo.toml version')
+          lock = tomllib.loads(Path('Cargo.lock').read_text())
+          packages = [p for p in lock['package'] if p['name'] == package['name'] and 'source' not in p]
+          if len(packages) != 1 or packages[0]['version'] != version:
+              raise SystemExit('Cargo.lock package version must match Cargo.toml')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'version={version}\n')
+          PY
+
+  build:
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+          - runner: macos-15
+            target: aarch64-apple-darwin
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify native target
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          rustc -vV | grep -Fx "host: ${TARGET}"
+      - name: Build locked release binary
+        env:
+          TARGET: ${{ matrix.target }}
+        run: cargo build --release --locked --target "$TARGET" --bin omnisearch
+      - name: Exercise native MCP stdio protocol
+        env:
+          OMNISEARCH_BIN: ${{ github.workspace }}/target/${{ matrix.target }}/release/omnisearch
+        run: python3 tests/protocol_smoke.py
+      - name: Package and verify binary
+        env:
+          TARGET: ${{ matrix.target }}
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          set -euo pipefail
+          binary="target/${TARGET}/release/omnisearch"
+          test "$("$binary" --version)" = "omnisearch ${VERSION}"
+          package="omnisearch-v${VERSION}-${TARGET}"
+          mkdir -p "dist/${package}"
+          cp "$binary" LICENSE README.md "dist/${package}/"
+          tar -czf "dist/${package}.tar.gz" -C dist "$package"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.target }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: [validate, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: dist
+      - name: Generate and verify release checksums
+        working-directory: dist
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import os
+          from pathlib import Path
+
+          targets = ['x86_64-unknown-linux-gnu', 'aarch64-unknown-linux-gnu',
+                     'x86_64-apple-darwin', 'aarch64-apple-darwin']
+          expected = {f'omnisearch-v{os.environ["VERSION"]}-{target}.tar.gz' for target in targets}
+          actual = {p.name for p in Path('.').iterdir()}
+          if actual != expected:
+              raise SystemExit(f'Unexpected release assets: {actual ^ expected}')
+          with open('SHA256SUMS', 'w') as output:
+              for name in sorted(expected):
+                  with open(name, 'rb') as archive:
+                      digest = hashlib.file_digest(archive, 'sha256').hexdigest()
+                  output.write(f'{digest}  {name}\n')
+          PY
+          sha256sum --check SHA256SUMS
+      - name: Upload assets to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --verify-tag --generate-notes --draft --title "$RELEASE_TAG"
+          fi
+          gh release upload "$RELEASE_TAG" dist/*.tar.gz dist/SHA256SUMS --clobber
+          if [[ "$RELEASE_TAG" == *-* ]]; then
+            gh release edit "$RELEASE_TAG" --draft=false --prerelease
+          else
+            gh release edit "$RELEASE_TAG" --draft=false --prerelease=false
+          fi

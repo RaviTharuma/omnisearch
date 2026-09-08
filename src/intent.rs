@@ -113,6 +113,9 @@ fn intent_subset(query: &str, vertical: SearchType, configured: &[ProviderId]) -
         SearchType::Web => want.extend(ProviderId::all().iter().copied()),
     }
 
+    if !want.contains(&ProviderId::Omniroute) {
+        want.push(ProviderId::Omniroute);
+    }
     want.into_iter()
         .filter(|id| configured.contains(id))
         .collect()

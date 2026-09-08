@@ -33,6 +33,8 @@ pub struct AppState {
 impl AppState {
     /// Build state from an explicit config.
     pub fn new(config: Config) -> crate::error::Result<Arc<Self>> {
+        config.validate_accounts()?;
+        config.validate_gateways()?;
         let http = HttpClient::new(&config)?;
         let registry = Registry::new(&config, http.clone());
         Ok(Arc::new(Self {

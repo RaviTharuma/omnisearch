@@ -34,6 +34,7 @@ pub enum ProviderId {
     Mastodon,
     Bluesky,
     McpBackend,
+    Omniroute,
 }
 
 impl ProviderId {
@@ -67,6 +68,7 @@ impl ProviderId {
             Self::Mastodon,
             Self::Bluesky,
             Self::McpBackend,
+            Self::Omniroute,
         ]
     }
 
@@ -95,6 +97,7 @@ impl ProviderId {
             Self::Mastodon => "mastodon",
             Self::Bluesky => "bluesky",
             Self::McpBackend => "mcp_backend",
+            Self::Omniroute => "omniroute",
         }
     }
 
@@ -123,6 +126,7 @@ impl ProviderId {
             "scholar" | "semantic_scholar" | "semanticscholar" => Self::Scholar,
             "mastodon" => Self::Mastodon,
             "bluesky" | "bsky" => Self::Bluesky,
+            "omniroute" => Self::Omniroute,
             "mcp_backend" | "mcp" | "backend" => Self::McpBackend,
             other => {
                 return Err(crate::error::Error::Invalid(format!(
