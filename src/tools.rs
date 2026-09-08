@@ -448,6 +448,14 @@ impl OmniServer {
         to_json(&self.state.registry.infos())
     }
 
+    /// Independent named-account and gateway health; never includes secrets.
+    #[tool(
+        description = "Health and cooldown of named provider accounts and OmniRoute connections. Never returns credentials."
+    )]
+    pub async fn account_health(&self) -> Result<Json<Value>, ErrorData> {
+        to_json(&self.state.registry.account_health.snapshot())
+    }
+
     /// Live provider health: configured, cooldown, latency, errors, requires_key.
     #[tool(
         description = "Live provider health: configured, cooldown, recent latency/errors, requires_key. Never returns secrets."

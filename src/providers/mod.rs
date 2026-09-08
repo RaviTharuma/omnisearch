@@ -12,7 +12,8 @@ mod keenable;
 mod linkup;
 mod mastodon;
 mod mcp_backend;
-mod parallel;
+pub mod omniroute;
+pub mod parallel;
 mod perplexity;
 mod querit;
 mod reddit;
@@ -82,6 +83,7 @@ pub trait Provider: Send + Sync {
 
 pub struct Registry {
     providers: Vec<Arc<dyn Provider>>,
+    pub account_health: Arc<crate::accounts::AccountHealthBoard>,
 }
 
 impl Registry {
@@ -111,9 +113,17 @@ impl Registry {
             Arc::new(bluesky::Bluesky::new(config, http.clone())),
         ];
         if !config.mcp_backends.is_empty() {
-            providers.push(Arc::new(mcp_backend::McpBackends::new(config, http)));
+            providers.push(Arc::new(mcp_backend::McpBackends::new(
+                config,
+                http.clone(),
+            )));
         }
-        Self { providers }
+        let wrapped = crate::accounts::wrap_providers(providers, config, http)
+            .expect("account configuration must be validated before constructing Registry");
+        Self {
+            providers: wrapped.providers,
+            account_health: wrapped.health,
+        }
     }
 
     pub fn get(&self, id: ProviderId) -> Option<Arc<dyn Provider>> {

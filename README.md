@@ -1,5 +1,7 @@
 # omnisearch
 
+See [named accounts and OmniRoute gateways](docs/accounts-and-gateways.md) for multiple accounts, gateway-only credentials, supported authentication and health.
+
 **Search MCP** — parallel search across many engines so your AI finds what a single search usually misses.
 
 - **Parallel by default.** Every engine you configure is queried at once, not one at a time.

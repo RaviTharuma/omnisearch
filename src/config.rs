@@ -5,7 +5,7 @@ use std::env;
 use crate::keys::{GITHUB_KEY_NAMES, env_key_ring, env_key_rings};
 use crate::types::{DEFAULT_RRF_K, SAFETY_BOUND, SearchMode};
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Config {
     pub user_agent: String,
     pub country: String,
@@ -28,13 +28,19 @@ pub struct Config {
     pub http_rpm: u32,
     pub request_timeout_secs: u64,
     pub keys: ProviderKeys,
+    /// Explicit named accounts replace legacy credentials for their provider.
+    pub accounts: Vec<ProviderAccount>,
+    /// Sanitized parse error retained because `from_env` cannot return Result.
+    pub accounts_error: Option<String>,
+    pub gateways: Vec<crate::providers::omniroute::GatewayConnection>,
+    pub gateways_error: Option<String>,
     pub endpoints: Endpoints,
     pub mcp_backends: Vec<McpBackend>,
     pub keenable_public: bool,
     pub keenable_title: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct McpBackend {
     pub name: String,
     pub url: String,
@@ -42,7 +48,7 @@ pub struct McpBackend {
 }
 
 /// Secret material. Never serialize into tool output.
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct ProviderKeys {
     pub tavily: Vec<String>,
     pub exa: Vec<String>,
@@ -69,6 +75,229 @@ pub struct ProviderKeys {
     pub mastodon_instance: Option<String>,
     pub bluesky_handle: Option<String>,
     pub bluesky_app_password: Option<String>,
+}
+
+/// A named account. Credentials are deliberately never serializable or printable.
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProviderAccount {
+    pub provider: crate::types::ProviderId,
+    pub name: String,
+    pub credentials: AccountCredentials,
+}
+
+#[derive(Clone, serde::Deserialize)]
+#[serde(untagged, deny_unknown_fields)]
+pub enum AccountCredentials {
+    ApiKey {
+        api_key: String,
+    },
+    Bearer {
+        bearer_token: String,
+    },
+    Xai {
+        xai_api_key: String,
+    },
+    Reddit {
+        client_id: String,
+        client_secret: String,
+    },
+    Instagram {
+        token: String,
+        user_id: String,
+    },
+    Token {
+        token: String,
+    },
+    Mastodon {
+        instance: String,
+        token: Option<String>,
+    },
+    Mcp {
+        url: String,
+        token: Option<String>,
+    },
+    Public {},
+}
+
+impl std::fmt::Debug for Config {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Config([REDACTED])")
+    }
+}
+
+impl std::fmt::Debug for AccountCredentials {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("AccountCredentials([REDACTED])")
+    }
+}
+impl std::fmt::Debug for ProviderKeys {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ProviderKeys([REDACTED])")
+    }
+}
+impl std::fmt::Debug for McpBackend {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("McpBackend([REDACTED])")
+    }
+}
+
+impl ProviderAccount {
+    /// Set only this account's credentials; never inherit another account's keys.
+    pub fn apply(&self, config: &mut Config) -> crate::error::Result<()> {
+        use crate::types::ProviderId as P;
+        use AccountCredentials as C;
+        let invalid =
+            || crate::error::Error::Invalid("invalid provider account credentials".into());
+        let nonempty = |s: &str| !s.trim().is_empty();
+        let mut keys = ProviderKeys::default();
+        let mut mcp_backends = Vec::new();
+        match (&self.provider, &self.credentials) {
+            (p, C::ApiKey { api_key }) if nonempty(api_key) => {
+                let field = match p {
+                    P::Tavily => &mut keys.tavily,
+                    P::Exa => &mut keys.exa,
+                    P::Firecrawl => &mut keys.firecrawl,
+                    P::Linkup => &mut keys.linkup,
+                    P::Brave => &mut keys.brave,
+                    P::Kagi => &mut keys.kagi,
+                    P::Github => &mut keys.github,
+                    P::Youtube => &mut keys.youtube,
+                    P::Youcom => &mut keys.youcom,
+                    P::Parallel => &mut keys.parallel,
+                    P::Querit => &mut keys.querit,
+                    P::Tinyfish => &mut keys.tinyfish,
+                    P::Keenable => &mut keys.keenable,
+                    P::Perplexity => &mut keys.perplexity,
+                    _ => return Err(invalid()),
+                };
+                field.push(api_key.clone());
+            }
+            (P::X, C::Bearer { bearer_token }) if nonempty(bearer_token) => {
+                keys.x_bearer.push(bearer_token.clone())
+            }
+            (P::X, C::Xai { xai_api_key }) if nonempty(xai_api_key) => {
+                keys.xai.push(xai_api_key.clone())
+            }
+            (
+                P::Reddit,
+                C::Reddit {
+                    client_id,
+                    client_secret,
+                },
+            ) if nonempty(client_id) && nonempty(client_secret) => {
+                keys.reddit_client_id = Some(client_id.clone());
+                keys.reddit_client_secret = Some(client_secret.clone());
+            }
+            (P::Instagram, C::Instagram { token, user_id })
+                if nonempty(token) && nonempty(user_id) =>
+            {
+                keys.instagram_token.push(token.clone());
+                keys.instagram_user_id = Some(user_id.clone());
+            }
+            (P::Facebook, C::Token { token }) if nonempty(token) => {
+                keys.facebook_token.push(token.clone())
+            }
+            (P::Mastodon, C::Mastodon { instance, token })
+                if nonempty(instance) && token.as_deref().is_none_or(nonempty) =>
+            {
+                let url = url::Url::parse(instance).map_err(|_| invalid())?;
+                if !matches!(url.scheme(), "http" | "https")
+                    || url.host_str().is_none()
+                    || !url.username().is_empty()
+                    || url.password().is_some()
+                {
+                    return Err(invalid());
+                }
+                keys.mastodon_instance = Some(instance.clone());
+                keys.mastodon_token = token.clone();
+            }
+            (P::McpBackend, C::Mcp { url, token })
+                if nonempty(url) && token.as_deref().is_none_or(nonempty) =>
+            {
+                let parsed = url::Url::parse(url).map_err(|_| invalid())?;
+                if !matches!(parsed.scheme(), "http" | "https")
+                    || parsed.host_str().is_none()
+                    || !parsed.username().is_empty()
+                    || parsed.password().is_some()
+                {
+                    return Err(invalid());
+                }
+                mcp_backends.push(McpBackend {
+                    name: self.name.clone(),
+                    url: url.clone(),
+                    token: token.clone(),
+                });
+            }
+            // Existing Bluesky adapter is public; do not silently accept unused secrets.
+            (P::Wikipedia | P::Scholar | P::Bluesky, C::Public {}) => {}
+            _ => return Err(invalid()),
+        }
+        config.keys = keys;
+        config.accounts.clear();
+        config.gateways.clear();
+        config.gateways_error = None;
+        config.gateways.clear();
+        config.gateways_error = None;
+        config.accounts_error = None;
+        config.mcp_backends = mcp_backends;
+        Ok(())
+    }
+}
+
+fn parse_accounts(raw: &str) -> (Vec<ProviderAccount>, Option<String>) {
+    match serde_json::from_str(raw) {
+        Ok(accounts) => (accounts, None),
+        // Serde errors may quote a supplied secret or unknown field: discard details.
+        Err(_) => (Vec::new(), Some("invalid OMNISEARCH_ACCOUNTS JSON".into())),
+    }
+}
+
+impl Config {
+    pub fn validate_gateways(&self) -> crate::error::Result<()> {
+        if let Some(error) = &self.gateways_error {
+            return Err(crate::error::Error::Invalid(error.clone()));
+        }
+        let mut names = std::collections::HashSet::new();
+        for gateway in &self.gateways {
+            gateway.endpoint()?;
+            if !names.insert(&gateway.name) {
+                return Err(crate::error::Error::Invalid(
+                    "duplicate OmniRoute connection name".into(),
+                ));
+            }
+        }
+        Ok(())
+    }
+    pub fn set_accounts_json(&mut self, raw: &str) {
+        (self.accounts, self.accounts_error) = parse_accounts(raw);
+    }
+
+    /// Must be called before constructing AppState; malformed JSON is not a fallback.
+    pub fn validate_accounts(&self) -> crate::error::Result<()> {
+        if self.accounts_error.is_some() {
+            return Err(crate::error::Error::Invalid(
+                "invalid OMNISEARCH_ACCOUNTS configuration".into(),
+            ));
+        }
+        let mut seen = std::collections::HashSet::new();
+        for account in &self.accounts {
+            if account.name.is_empty()
+                || account.name.len() > 64
+                || !account
+                    .name
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'))
+                || !seen.insert((account.provider, account.name.as_str()))
+            {
+                return Err(crate::error::Error::Invalid(
+                    "invalid or duplicate provider account name".into(),
+                ));
+            }
+            account.apply(&mut self.clone())?;
+        }
+        Ok(())
+    }
 }
 
 /// Overridable API bases (tests + self-host).
@@ -131,6 +360,12 @@ impl Config {
     /// Load configuration from process environment.
     pub fn from_env() -> Self {
         let _ = dotenvy::dotenv();
+        let (gateways, gateways_error) = match crate::providers::omniroute::parse_connections(
+            &env::var("OMNISEARCH_OMNIROUTE_GATEWAYS").unwrap_or_else(|_| "[]".into()),
+        ) {
+            Ok(v) => (v, None),
+            Err(e) => (Vec::new(), Some(e.to_string())),
+        };
         let endpoints = Endpoints {
             tavily: env_or("TAVILY_BASE_URL", "https://api.tavily.com"),
             exa: env_or("EXA_BASE_URL", "https://api.exa.ai"),
@@ -159,7 +394,19 @@ impl Config {
             bluesky: env_or("BLUESKY_BASE_URL", "https://public.api.bsky.app"),
         };
 
+        let (accounts, accounts_error) = match env::var("OMNISEARCH_ACCOUNTS") {
+            Ok(raw) => parse_accounts(&raw),
+            Err(env::VarError::NotPresent) => (Vec::new(), None),
+            Err(_) => (
+                Vec::new(),
+                Some("invalid OMNISEARCH_ACCOUNTS encoding".into()),
+            ),
+        };
         Self {
+            accounts,
+            accounts_error,
+            gateways,
+            gateways_error,
             user_agent: env_or(
                 "OMNISEARCH_USER_AGENT",
                 "omnisearch/0.1.0 (+https://github.com/RaviTharuma/omnisearch)",

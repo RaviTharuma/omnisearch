@@ -1,5 +1,6 @@
 //! Omnisearch: a unified multi-provider MCP search server.
 
+pub mod accounts;
 pub mod bench;
 pub mod cache;
 pub mod config;
