@@ -27,6 +27,29 @@ omnisearch
 
 If the binary is not on your PATH yet, install it from this checkout (`cargo install --path .`) or drop a release build on your PATH. Toolchain notes are under [Development](#development).
 
+### Release binaries
+
+Tagged releases provide native binaries for four targets:
+
+| Platform | Architecture | Target |
+| --- | --- | --- |
+| Linux | x86_64 | `x86_64-unknown-linux-gnu` |
+| Linux | ARM64 | `aarch64-unknown-linux-gnu` |
+| macOS | Intel | `x86_64-apple-darwin` |
+| macOS | Apple Silicon | `aarch64-apple-darwin` |
+
+Download `omnisearch-v0.2.0-<target>.tar.gz` and `SHA256SUMS` from the GitHub Release.
+Verify the archive with `sha256sum --check --ignore-missing SHA256SUMS` on Linux,
+or `shasum -a 256 --check --ignore-missing SHA256SUMS` on macOS, then extract it
+and put `omnisearch` on your PATH. Archives include the binary, license, and README.
+Linux builds use Ubuntu 24.04 and require a compatible glibc runtime; these are not
+static musl binaries. Windows release binaries are not currently provided.
+
+The release workflow accepts `v*` tags only when the tag exactly matches the
+package version in `Cargo.toml` and `Cargo.lock`. All four builds run on native
+runners with `--locked` and pass the local-only MCP stdio smoke before upload.
+No release is published until every target succeeds.
+
 ### Cursor
 
 `.cursor/mcp.json`:

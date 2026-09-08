@@ -10,35 +10,26 @@ env:
   CARGO_TERM_COLOR: always
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - name: Resolve lockfile
-        run: cargo generate-lockfile
       - name: rustfmt
         run: cargo fmt --all -- --check
       - name: clippy
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --locked --all-targets -- -D warnings
       - name: test
-        run: cargo test --all
-      - name: Commit lockfile when missing
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: |
-          set -euo pipefail
-          git add Cargo.lock
-          if git diff --cached --quiet -- Cargo.lock; then
-            echo 'Cargo.lock already tracked'
-            exit 0
-          fi
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'Add Cargo.lock for reproducible builds.'
-          git push
+        run: cargo test --locked --all
+      - name: Build stdio server
+        run: cargo build --locked
+      - name: Exercise MCP stdio protocol
+        run: python3 tests/protocol_smoke.py

@@ -27,7 +27,7 @@ threading.Thread(target=server.serve_forever, daemon=True).start()
 env = {'PATH': os.environ['PATH'], 'HOME': os.environ['HOME'], 'RUST_LOG': 'off',
        'OMNISEARCH_ACCOUNTS': '[]',
        'OMNISEARCH_OMNIROUTE_GATEWAYS': json.dumps([{'name': 'mock', 'base_url': f'http://127.0.0.1:{server.server_port}', 'api_key': 'mock-only-key'}])}
-exe = Path(__file__).resolve().parents[1] / 'target/debug/omnisearch'
+exe = Path(os.environ.get('OMNISEARCH_BIN', str(Path(__file__).resolve().parents[1] / 'target/debug/omnisearch')))
 p = subprocess.Popen([str(exe)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env, cwd='/tmp')
 assert p.stdin is not None and p.stdout is not None
 def send(obj):
