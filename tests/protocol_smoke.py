@@ -7,6 +7,16 @@ import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
+def crate_version() -> str:
+    """Return the package version from Cargo.toml (single source of truth)."""
+    cargo = Path(__file__).resolve().parents[1] / 'Cargo.toml'
+    for line in cargo.read_text(encoding='utf-8').splitlines():
+        if line.startswith('version = '):
+            return line.split('=', 1)[1].strip().strip('"')
+    raise RuntimeError(f'version not found in {cargo}')
+
+EXPECTED_VERSION = crate_version()
+
 calls = []
 class Gateway(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
@@ -42,7 +52,7 @@ def rpc(i, method, params=None):
     return result['result']
 try:
     init = rpc(1, 'initialize', {'protocolVersion':'2024-11-05','capabilities':{},'clientInfo':{'name':'smoke','version':'1'}})
-    assert init['serverInfo']['version'] == '0.2.0', init
+    assert init['serverInfo']['version'] == EXPECTED_VERSION, init
     send({'jsonrpc':'2.0','method':'notifications/initialized'})
     tools = rpc(2, 'tools/list')
     assert 'account_health' in [t['name'] for t in tools['tools']]
@@ -52,6 +62,6 @@ try:
     health = rpc(4, 'tools/call', {'name':'account_health','arguments':{}})
     assert 'mock-only-key' not in json.dumps(health)
     assert len(calls) == 1, calls
-    print('PASS: initialize 0.2.0, tools/list, search gateway auth/result, account_health redaction; one local HTTP call')
+    print(f'PASS: initialize {EXPECTED_VERSION}, tools/list, search gateway auth/result, account_health redaction; one local HTTP call')
 finally:
     p.terminate(); p.wait(timeout=5); server.shutdown()
