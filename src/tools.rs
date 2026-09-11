@@ -88,13 +88,18 @@ impl OmniServer {
         match account.as_deref() {
             None => Ok(None),
             Some(name) => {
-                if self.state.registry.account_health.has_account(provider, name) {
+                if self
+                    .state
+                    .registry
+                    .account_health
+                    .has_account(provider, name)
+                {
                     Ok(Some(name))
                 } else {
-                    Err(Error::Invalid(format!(
-                        "unknown account '{name}' for provider {provider}"
-                    ))
-                    .to_mcp())
+                    Err(
+                        Error::Invalid(format!("unknown account '{name}' for provider {provider}"))
+                            .to_mcp(),
+                    )
                 }
             }
         }

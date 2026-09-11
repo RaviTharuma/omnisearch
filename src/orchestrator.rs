@@ -558,11 +558,8 @@ pub async fn extract(state: &AppState, request: ExtractRequest) -> ExtractRespon
             continue;
         }
         let call_started = Instant::now();
-        match tokio::time::timeout(
-            timeout,
-            provider.extract(&urls, request.account.as_deref()),
-        )
-        .await
+        match tokio::time::timeout(timeout, provider.extract(&urls, request.account.as_deref()))
+            .await
         {
             Ok(Ok(docs)) if !docs.is_empty() => {
                 state.health.mark_success(id, call_started.elapsed());

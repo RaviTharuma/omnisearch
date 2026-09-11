@@ -192,11 +192,7 @@ impl Provider for Firecrawl {
         )
     }
 
-    async fn extract(
-        &self,
-        urls: &[String],
-        _account: Option<&str>,
-    ) -> Result<Vec<ExtractedDoc>> {
+    async fn extract(&self, urls: &[String], _account: Option<&str>) -> Result<Vec<ExtractedDoc>> {
         let mut out = Vec::new();
         for url in urls {
             out.push(self.scrape(url).await?);

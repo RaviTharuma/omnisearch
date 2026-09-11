@@ -68,11 +68,7 @@ pub trait Provider: Send + Sync {
         false
     }
     async fn search(&self, request: &ProviderSearchRequest<'_>) -> Result<SearchPage>;
-    async fn extract(
-        &self,
-        urls: &[String],
-        _account: Option<&str>,
-    ) -> Result<Vec<ExtractedDoc>> {
+    async fn extract(&self, urls: &[String], _account: Option<&str>) -> Result<Vec<ExtractedDoc>> {
         let _ = urls;
         Ok(Vec::new())
     }
