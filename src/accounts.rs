@@ -402,11 +402,7 @@ impl Provider for AccountProvider {
         }
         Err(last.unwrap_or_else(|| self.unavailable()))
     }
-    async fn extract(
-        &self,
-        urls: &[String],
-        account: Option<&str>,
-    ) -> Result<Vec<ExtractedDoc>> {
+    async fn extract(&self, urls: &[String], account: Option<&str>) -> Result<Vec<ExtractedDoc>> {
         self.run_accounts(account, self.attempt_timeout, |provider| {
             let urls = urls.to_vec();
             async move { provider.extract(&urls, None).await }

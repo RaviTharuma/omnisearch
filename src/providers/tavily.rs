@@ -55,11 +55,7 @@ impl Provider for Tavily {
         )
     }
 
-    async fn extract(
-        &self,
-        urls: &[String],
-        _account: Option<&str>,
-    ) -> Result<Vec<ExtractedDoc>> {
+    async fn extract(&self, urls: &[String], _account: Option<&str>) -> Result<Vec<ExtractedDoc>> {
         crate::try_keys!(
             &self.inner.keys,
             "tavily",

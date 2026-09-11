@@ -55,11 +55,7 @@ impl Provider for Linkup {
         )
     }
 
-    async fn extract(
-        &self,
-        urls: &[String],
-        _account: Option<&str>,
-    ) -> Result<Vec<ExtractedDoc>> {
+    async fn extract(&self, urls: &[String], _account: Option<&str>) -> Result<Vec<ExtractedDoc>> {
         crate::try_keys!(
             &self.inner.keys,
             "linkup",
@@ -71,7 +67,11 @@ impl Provider for Linkup {
 
 impl Linkup {
     fn depth(request: &ProviderSearchRequest<'_>) -> Result<&'static str> {
-        match request.depth.map(|d| d.trim().to_ascii_lowercase()).as_deref() {
+        match request
+            .depth
+            .map(|d| d.trim().to_ascii_lowercase())
+            .as_deref()
+        {
             None | Some("") | Some("standard") => Ok("standard"),
             Some("fast") => Ok("fast"),
             Some("flash") => Ok("flash"),
@@ -170,7 +170,13 @@ mod tests {
 
     #[test]
     fn accepts_documented_depths() {
-        for depth in [None, Some("standard"), Some("fast"), Some("flash"), Some("deep")] {
+        for depth in [
+            None,
+            Some("standard"),
+            Some("fast"),
+            Some("flash"),
+            Some("deep"),
+        ] {
             assert!(Linkup::depth(&req(depth)).is_ok());
         }
         assert!(matches!(

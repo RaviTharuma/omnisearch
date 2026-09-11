@@ -638,9 +638,7 @@ fn expand_official_remote(
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        OFFICIAL_MCP_REMOTES, expand_official_remote, parse_backends,
-    };
+    use super::{OFFICIAL_MCP_REMOTES, expand_official_remote, parse_backends};
 
     #[test]
     fn parses_backend_specs() {

@@ -554,4 +554,3 @@ async fn linkup_extract_and_depth_use_fetch_and_search_options() {
         .unwrap();
     assert_eq!(docs[0].content, "# hello");
 }
-
