@@ -63,9 +63,46 @@ pub trait Provider: Send + Sync {
     fn requires_key(&self) -> bool {
         true
     }
+    /// Whether this provider pool exposes the named account (for pin-by-account).
+    fn known_account(&self, _name: &str) -> bool {
+        false
+    }
     async fn search(&self, request: &ProviderSearchRequest<'_>) -> Result<SearchPage>;
-    async fn extract(&self, _urls: &[String]) -> Result<Vec<ExtractedDoc>> {
+    async fn extract(
+        &self,
+        urls: &[String],
+        _account: Option<&str>,
+    ) -> Result<Vec<ExtractedDoc>> {
+        let _ = urls;
         Ok(Vec::new())
+    }
+
+    /// Firecrawl-style site crawl. Default: unsupported.
+    async fn crawl(
+        &self,
+        _url: &str,
+        _limit: u32,
+        _timeout_secs: u64,
+        _account: Option<&str>,
+    ) -> Result<serde_json::Value> {
+        Err(crate::error::Error::Invalid(format!(
+            "{} does not support crawl",
+            self.id()
+        )))
+    }
+
+    /// Firecrawl-style site map. Default: unsupported.
+    async fn map_urls(
+        &self,
+        _url: &str,
+        _search: Option<&str>,
+        _limit: Option<u32>,
+        _account: Option<&str>,
+    ) -> Result<serde_json::Value> {
+        Err(crate::error::Error::Invalid(format!(
+            "{} does not support map",
+            self.id()
+        )))
     }
 
     fn info(&self) -> ProviderInfo {

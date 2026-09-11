@@ -402,6 +402,7 @@ impl Config {
                 Some("invalid OMNISEARCH_ACCOUNTS encoding".into()),
             ),
         };
+        let mcp_backends = parse_backends(env::var("OMNISEARCH_MCP_BACKENDS").ok(), &accounts);
         Self {
             accounts,
             accounts_error,
@@ -466,7 +467,7 @@ impl Config {
                     .filter(|s| !s.is_empty()),
             },
             endpoints,
-            mcp_backends: parse_backends(env::var("OMNISEARCH_MCP_BACKENDS").ok()),
+            mcp_backends,
             keenable_public: env_bool("KEENABLE_PUBLIC"),
             keenable_title: env_or("KEENABLE_TITLE", "omnisearch"),
         }
@@ -544,7 +545,7 @@ fn parse_mode(raw: &str) -> SearchMode {
 }
 
 /// Parse `name|url|token,name2|url2` plus the `official` preset token.
-fn parse_backends(raw: Option<String>) -> Vec<McpBackend> {
+fn parse_backends(raw: Option<String>, accounts: &[ProviderAccount]) -> Vec<McpBackend> {
     let mut backends = Vec::new();
     for item in raw.unwrap_or_default().split(',') {
         let item = item.trim();
@@ -552,7 +553,7 @@ fn parse_backends(raw: Option<String>) -> Vec<McpBackend> {
             continue;
         }
         if item.eq_ignore_ascii_case("official") {
-            backends.extend(official_backends());
+            backends.extend(official_backends(accounts));
             continue;
         }
         let mut parts = item.split('|');
@@ -576,29 +577,77 @@ fn parse_backends(raw: Option<String>) -> Vec<McpBackend> {
     backends
 }
 
-fn official_backends() -> Vec<McpBackend> {
-    OFFICIAL_MCP_REMOTES
-        .iter()
-        .filter_map(|(name, url, env_name)| {
-            let token = env_key_ring(env_name).into_iter().next()?;
-            Some(McpBackend {
-                name: (*name).to_string(),
-                url: (*url).to_string(),
+/// Expand official remotes across every env key and/or named api_key accounts.
+fn official_backends(accounts: &[ProviderAccount]) -> Vec<McpBackend> {
+    let mut backends = Vec::new();
+    for (name, url, env_name) in OFFICIAL_MCP_REMOTES {
+        let Ok(provider) = crate::types::ProviderId::parse(name) else {
+            continue;
+        };
+        let named: Vec<(String, String)> = accounts
+            .iter()
+            .filter(|a| a.provider == provider)
+            .filter_map(|account| match &account.credentials {
+                AccountCredentials::ApiKey { api_key } if !api_key.trim().is_empty() => {
+                    Some((account.name.clone(), api_key.clone()))
+                }
+                _ => None,
+            })
+            .collect();
+        backends.extend(expand_official_remote(
+            name,
+            url,
+            named,
+            env_key_ring(env_name),
+        ));
+    }
+    backends
+}
+
+/// Named accounts replace the legacy env ring for that remote (same rule as native adapters).
+fn expand_official_remote(
+    name: &str,
+    url: &str,
+    named: Vec<(String, String)>,
+    env_keys: Vec<String>,
+) -> Vec<McpBackend> {
+    if !named.is_empty() {
+        return named
+            .into_iter()
+            .map(|(account_name, token)| McpBackend {
+                name: format!("{name}-{account_name}"),
+                url: url.to_string(),
                 token: Some(token),
             })
+            .collect();
+    }
+    env_keys
+        .into_iter()
+        .enumerate()
+        .map(|(i, token)| McpBackend {
+            name: if i == 0 {
+                name.to_string()
+            } else {
+                format!("{name}_{}", i + 1)
+            },
+            url: url.to_string(),
+            token: Some(token),
         })
         .collect()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{OFFICIAL_MCP_REMOTES, parse_backends};
+    use super::{
+        OFFICIAL_MCP_REMOTES, expand_official_remote, parse_backends,
+    };
 
     #[test]
     fn parses_backend_specs() {
-        let backends = parse_backends(Some(
-            "alpha|https://a.example/mcp|tok,beta|https://b.example/mcp".into(),
-        ));
+        let backends = parse_backends(
+            Some("alpha|https://a.example/mcp|tok,beta|https://b.example/mcp".into()),
+            &[],
+        );
         assert_eq!(backends.len(), 2);
         assert_eq!(backends[0].name, "alpha");
         assert_eq!(backends[0].token.as_deref(), Some("tok"));
@@ -612,6 +661,42 @@ mod tests {
             OFFICIAL_MCP_REMOTES
                 .iter()
                 .any(|(name, _, _)| *name == "perplexity")
+        );
+    }
+
+    #[test]
+    fn official_expands_all_env_keys_not_only_first() {
+        let backends = expand_official_remote(
+            "tavily",
+            "https://mcp.tavily.com/mcp",
+            Vec::new(),
+            vec!["tvly-one".into(), "tvly-two".into()],
+        );
+        assert_eq!(backends.len(), 2);
+        assert_eq!(backends[0].name, "tavily");
+        assert_eq!(backends[1].name, "tavily_2");
+        assert_eq!(backends[0].token.as_deref(), Some("tvly-one"));
+        assert_eq!(backends[1].token.as_deref(), Some("tvly-two"));
+    }
+
+    #[test]
+    fn official_prefers_named_accounts_over_legacy_keys() {
+        let backends = expand_official_remote(
+            "tavily",
+            "https://mcp.tavily.com/mcp",
+            vec![
+                ("work".into(), "acct-work".into()),
+                ("personal".into(), "acct-personal".into()),
+            ],
+            vec!["legacy-must-not-win".into()],
+        );
+        assert_eq!(backends.len(), 2);
+        assert!(backends.iter().any(|b| b.name == "tavily-work"));
+        assert!(backends.iter().any(|b| b.name == "tavily-personal"));
+        assert!(
+            !backends
+                .iter()
+                .any(|b| b.token.as_deref() == Some("legacy-must-not-win"))
         );
     }
 }

@@ -46,6 +46,8 @@ pub async fn run_bench(state: &AppState, query: &str) -> Vec<BenchRow> {
             freshness: None,
             country: &state.config.country,
             language: &state.config.language,
+            account: None,
+            depth: None,
         };
         match provider.search(&req).await {
             Ok(page) => rows.push(BenchRow {

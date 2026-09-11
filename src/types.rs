@@ -303,6 +303,10 @@ pub struct SearchRequest {
     pub ground_top: Option<u32>,
     /// Ladder/evidence stop: enough unique hits to skip remaining paid providers.
     pub evidence_min: Option<u32>,
+    /// Pin to a named `OMNISEARCH_ACCOUNTS` entry. Omit for round-robin/failover.
+    pub account: Option<String>,
+    /// Provider-specific search depth when supported (e.g. Linkup: fast/standard/deep).
+    pub depth: Option<String>,
 }
 
 impl SearchRequest {
@@ -325,6 +329,8 @@ impl SearchRequest {
             include_quality_report: false,
             ground_top: None,
             evidence_min: None,
+            account: None,
+            depth: None,
         }
     }
 
@@ -343,6 +349,10 @@ pub struct ProviderSearchRequest<'a> {
     pub freshness: Option<Freshness>,
     pub country: &'a str,
     pub language: &'a str,
+    /// Pin to a named account when the provider uses `OMNISEARCH_ACCOUNTS`.
+    pub account: Option<&'a str>,
+    /// Optional depth hint for providers that expose it (Linkup).
+    pub depth: Option<&'a str>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default, PartialEq)]
@@ -453,6 +463,8 @@ pub struct ExtractRequest {
     pub urls: Vec<String>,
     pub providers: Option<Vec<ProviderId>>,
     pub timeout_seconds: Option<u64>,
+    /// Pin to a named `OMNISEARCH_ACCOUNTS` entry. Omit for round-robin/failover.
+    pub account: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

@@ -75,7 +75,29 @@ impl OmniServer {
             include_quality_report: params.quality_report.unwrap_or(false),
             ground_top: params.ground_top,
             evidence_min: params.evidence_min,
+            account: params.account,
+            depth: params.depth,
         })
+    }
+
+    fn pin_account<'a>(
+        &self,
+        provider: ProviderId,
+        account: &'a Option<String>,
+    ) -> Result<Option<&'a str>, ErrorData> {
+        match account.as_deref() {
+            None => Ok(None),
+            Some(name) => {
+                if self.state.registry.account_health.has_account(provider, name) {
+                    Ok(Some(name))
+                } else {
+                    Err(Error::Invalid(format!(
+                        "unknown account '{name}' for provider {provider}"
+                    ))
+                    .to_mcp())
+                }
+            }
+        }
     }
 }
 
@@ -107,6 +129,10 @@ pub struct SearchParams {
     pub ground_top: Option<u32>,
     /// Ladder stop: unique hits needed before skipping remaining paid providers.
     pub evidence_min: Option<u32>,
+    /// Pin to a named OMNISEARCH_ACCOUNTS entry (e.g. `work`). Omit for round-robin.
+    pub account: Option<String>,
+    /// Provider depth when supported (Linkup: `fast`, `flash`, `standard`, `deep`).
+    pub depth: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
@@ -115,6 +141,10 @@ pub struct QueryParams {
     pub limit: Option<u32>,
     pub unlimited: Option<bool>,
     pub freshness: Option<String>,
+    /// Pin to a named OMNISEARCH_ACCOUNTS entry. Omit for round-robin.
+    pub account: Option<String>,
+    /// Linkup depth: `fast`, `flash`, `standard`, or `deep`.
+    pub depth: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
@@ -122,6 +152,8 @@ pub struct ExtractParams {
     pub urls: Vec<String>,
     pub providers: Option<Vec<String>>,
     pub timeout_seconds: Option<u64>,
+    /// Pin to a named OMNISEARCH_ACCOUNTS entry. Omit for round-robin.
+    pub account: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
@@ -132,11 +164,14 @@ pub struct ResearchParams {
     pub budget_seconds: Option<u64>,
     pub freshness: Option<String>,
     pub search_type: Option<String>,
+    pub account: Option<String>,
+    pub depth: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 pub struct UrlParams {
     pub url: String,
+    pub account: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
@@ -144,6 +179,7 @@ pub struct CrawlParams {
     pub url: String,
     pub limit: Option<u32>,
     pub timeout_seconds: Option<u64>,
+    pub account: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
@@ -151,6 +187,7 @@ pub struct MapParams {
     pub url: String,
     pub search: Option<String>,
     pub limit: Option<u32>,
+    pub account: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
@@ -201,7 +238,9 @@ impl OmniServer {
     }
 
     /// Linkup-only search.
-    #[tool(description = "Search with Linkup only.")]
+    #[tool(
+        description = "Search with Linkup only. Optional depth=fast|flash|standard|deep (default standard). Optional account pin."
+    )]
     pub async fn linkup_search(
         &self,
         Parameters(params): Parameters<QueryParams>,
@@ -330,6 +369,7 @@ impl OmniServer {
                 urls: params.urls.clone(),
                 providers: Self::parse_providers(&params.providers)?,
                 timeout_seconds: params.timeout_seconds,
+                account: params.account,
             },
         )
         .await;
@@ -376,6 +416,8 @@ impl OmniServer {
             Some(raw) => SearchType::parse(raw).map_err(|e| e.to_mcp())?,
             None => SearchType::Web,
         };
+        req.account = params.account;
+        req.depth = params.depth;
         let out = research(
             &self.state,
             req,
@@ -392,13 +434,14 @@ impl OmniServer {
         &self,
         Parameters(params): Parameters<UrlParams>,
     ) -> Result<Json<Value>, ErrorData> {
+        let account = self.pin_account(ProviderId::Firecrawl, &params.account)?;
         let provider = self
             .state
             .registry
             .get(ProviderId::Firecrawl)
             .ok_or_else(|| Error::provider("firecrawl", "missing").to_mcp())?;
         let docs = provider
-            .extract(&[params.url])
+            .extract(&[params.url], account)
             .await
             .map_err(|e| e.to_mcp())?;
         to_json(&docs)
@@ -410,15 +453,18 @@ impl OmniServer {
         &self,
         Parameters(params): Parameters<CrawlParams>,
     ) -> Result<Json<Value>, ErrorData> {
-        let fc = crate::providers::firecrawl::Firecrawl::new(
-            &self.state.config,
-            self.state.http.clone(),
-        );
-        let value = fc
+        let account = self.pin_account(ProviderId::Firecrawl, &params.account)?;
+        let provider = self
+            .state
+            .registry
+            .get(ProviderId::Firecrawl)
+            .ok_or_else(|| Error::provider("firecrawl", "missing").to_mcp())?;
+        let value = provider
             .crawl(
                 &params.url,
                 params.limit.unwrap_or(25),
                 params.timeout_seconds.unwrap_or(90),
+                account,
             )
             .await
             .map_err(|e| e.to_mcp())?;
@@ -431,12 +477,14 @@ impl OmniServer {
         &self,
         Parameters(params): Parameters<MapParams>,
     ) -> Result<Json<Value>, ErrorData> {
-        let fc = crate::providers::firecrawl::Firecrawl::new(
-            &self.state.config,
-            self.state.http.clone(),
-        );
-        let value = fc
-            .map(&params.url, params.search.as_deref(), params.limit)
+        let account = self.pin_account(ProviderId::Firecrawl, &params.account)?;
+        let provider = self
+            .state
+            .registry
+            .get(ProviderId::Firecrawl)
+            .ok_or_else(|| Error::provider("firecrawl", "missing").to_mcp())?;
+        let value = provider
+            .map_urls(&params.url, params.search.as_deref(), params.limit, account)
             .await
             .map_err(|e| e.to_mcp())?;
         Ok(Json(value))
@@ -504,6 +552,8 @@ impl OmniServer {
             .map(Freshness::parse)
             .transpose()
             .map_err(|e| e.to_mcp())?;
+        req.account = params.account;
+        req.depth = params.depth;
         to_json(&search(&self.state, req).await)
     }
 }
