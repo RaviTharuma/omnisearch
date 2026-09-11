@@ -38,7 +38,7 @@ Tagged releases provide native binaries for four targets:
 | macOS | Intel | `x86_64-apple-darwin` |
 | macOS | Apple Silicon | `aarch64-apple-darwin` |
 
-Download `omnisearch-v0.2.0-<target>.tar.gz` and `SHA256SUMS` from the GitHub Release.
+Download `omnisearch-v0.2.1-<target>.tar.gz` and `SHA256SUMS` from the GitHub Release.
 Verify the archive with `sha256sum --check --ignore-missing SHA256SUMS` on Linux,
 or `shasum -a 256 --check --ignore-missing SHA256SUMS` on macOS, then extract it
 and put `omnisearch` on your PATH. Archives include the binary, license, and README.
