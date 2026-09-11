@@ -110,6 +110,13 @@ impl AccountHealthBoard {
             .sort_by(|a, b| (a.provider.as_str(), &a.name).cmp(&(b.provider.as_str(), &b.name)));
         snapshots
     }
+
+    /// True when a named account exists for the provider (credentials never exposed).
+    pub fn has_account(&self, provider: ProviderId, name: &str) -> bool {
+        self.accounts
+            .iter()
+            .any(|a| a.provider.id() == provider && a.name == name)
+    }
 }
 pub struct WrappedProviders {
     pub providers: Vec<Arc<dyn Provider>>,
@@ -215,6 +222,33 @@ impl AccountProvider {
             .map(|n| (start + n) % self.accounts.len())
             .collect()
     }
+    /// Resolve rotation order. Explicit pin and cursor both fail closed on unknown names.
+    fn resolve_order(&self, pin: Option<&str>, cursor: Option<&Cursor>) -> Result<Vec<usize>> {
+        if let Some(name) = pin {
+            let index = self
+                .accounts
+                .iter()
+                .position(|a| a.name == name)
+                .ok_or_else(|| Error::Invalid(format!("unknown account '{name}'")))?;
+            if let Some(c) = cursor
+                && c.account != name
+            {
+                return Err(Error::Invalid(
+                    "cursor account does not match pinned account".into(),
+                ));
+            }
+            return Ok(vec![index]);
+        }
+        if let Some(c) = cursor {
+            let index = self
+                .accounts
+                .iter()
+                .position(|a| a.name == c.account)
+                .ok_or_else(|| Error::Invalid("unknown cursor account".into()))?;
+            return Ok(vec![index]);
+        }
+        Ok(self.order())
+    }
     fn unavailable(&self) -> Error {
         Error::rate_limited(
             self.id().as_str(),
@@ -232,6 +266,43 @@ impl AccountProvider {
             },
             _ => Error::provider(self.id().as_str(), "named account failed"),
         }
+    }
+    async fn run_accounts<T, F, Fut>(
+        &self,
+        pin: Option<&str>,
+        timeout: Duration,
+        mut call: F,
+    ) -> Result<T>
+    where
+        F: FnMut(Arc<dyn Provider>) -> Fut,
+        Fut: std::future::Future<Output = Result<T>>,
+    {
+        let order = self.resolve_order(pin, None)?;
+        let mut last = None;
+        for index in order {
+            let account = &self.accounts[index];
+            if !account.available() {
+                continue;
+            }
+            let start = Instant::now();
+            let result = tokio::time::timeout(timeout, call(account.provider.clone()))
+                .await
+                .unwrap_or_else(|_| {
+                    Err(Error::Timeout {
+                        seconds: timeout.as_secs(),
+                        provider: self.id().to_string(),
+                    })
+                });
+            if matches!(&result, Err(Error::Invalid(_))) {
+                return result;
+            }
+            account.record(&result, start, self.cooldown);
+            match result {
+                Ok(value) => return Ok(value),
+                Err(error) => last = Some(self.safe_error(&error)),
+            }
+        }
+        Err(last.unwrap_or_else(|| self.unavailable()))
     }
 }
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -277,6 +348,9 @@ impl Provider for AccountProvider {
     fn requires_key(&self) -> bool {
         self.metadata.requires_key()
     }
+    fn known_account(&self, name: &str) -> bool {
+        self.accounts.iter().any(|a| a.name == name)
+    }
     async fn search(&self, request: &ProviderSearchRequest<'_>) -> Result<SearchPage> {
         let cursor: Option<Cursor> = request
             .cursor
@@ -285,16 +359,7 @@ impl Provider for AccountProvider {
                     .map_err(|_| Error::Invalid("invalid named account cursor".into()))
             })
             .transpose()?;
-        let order = if let Some(c) = &cursor {
-            vec![
-                self.accounts
-                    .iter()
-                    .position(|a| a.name == c.account)
-                    .ok_or_else(|| Error::Invalid("unknown cursor account".into()))?,
-            ]
-        } else {
-            self.order()
-        };
+        let order = self.resolve_order(request.account, cursor.as_ref())?;
         let mut last = None;
         for index in order {
             let account = &self.accounts[index];
@@ -303,6 +368,8 @@ impl Provider for AccountProvider {
             }
             let mut scoped = request.clone();
             scoped.cursor = cursor.as_ref().map(|c| c.cursor.as_str());
+            // Nested adapters do not re-interpret the pin.
+            scoped.account = None;
             let start = Instant::now();
             let result =
                 tokio::time::timeout(self.attempt_timeout, account.provider.search(&scoped))
@@ -335,31 +402,50 @@ impl Provider for AccountProvider {
         }
         Err(last.unwrap_or_else(|| self.unavailable()))
     }
-    async fn extract(&self, urls: &[String]) -> Result<Vec<ExtractedDoc>> {
-        let mut last = None;
-        for index in self.order() {
-            let account = &self.accounts[index];
-            if !account.available() {
-                continue;
+    async fn extract(
+        &self,
+        urls: &[String],
+        account: Option<&str>,
+    ) -> Result<Vec<ExtractedDoc>> {
+        self.run_accounts(account, self.attempt_timeout, |provider| {
+            let urls = urls.to_vec();
+            async move { provider.extract(&urls, None).await }
+        })
+        .await
+    }
+    async fn crawl(
+        &self,
+        url: &str,
+        limit: u32,
+        timeout_secs: u64,
+        account: Option<&str>,
+    ) -> Result<serde_json::Value> {
+        let timeout = Duration::from_secs(timeout_secs.max(self.attempt_timeout.as_secs()));
+        let url = url.to_string();
+        self.run_accounts(account, timeout, move |provider| {
+            let url = url.clone();
+            async move { provider.crawl(&url, limit, timeout_secs, None).await }
+        })
+        .await
+    }
+    async fn map_urls(
+        &self,
+        url: &str,
+        search: Option<&str>,
+        limit: Option<u32>,
+        account: Option<&str>,
+    ) -> Result<serde_json::Value> {
+        let url = url.to_string();
+        let search = search.map(str::to_string);
+        self.run_accounts(account, self.attempt_timeout, move |provider| {
+            let url = url.clone();
+            let search = search.clone();
+            async move {
+                provider
+                    .map_urls(&url, search.as_deref(), limit, None)
+                    .await
             }
-            let start = Instant::now();
-            let result = tokio::time::timeout(self.attempt_timeout, account.provider.extract(urls))
-                .await
-                .unwrap_or_else(|_| {
-                    Err(Error::Timeout {
-                        seconds: self.attempt_timeout.as_secs(),
-                        provider: self.id().to_string(),
-                    })
-                });
-            if matches!(&result, Err(Error::Invalid(_))) {
-                return result;
-            }
-            account.record(&result, start, self.cooldown);
-            match result {
-                Ok(docs) => return Ok(docs),
-                Err(error) => last = Some(self.safe_error(&error)),
-            }
-        }
-        Err(last.unwrap_or_else(|| self.unavailable()))
+        })
+        .await
     }
 }

@@ -25,6 +25,8 @@ fn request() -> ProviderSearchRequest<'static> {
         freshness: None,
         country: "US",
         language: "en",
+        account: None,
+        depth: None,
     }
 }
 fn parse(s: &str) -> Vec<ProviderAccount> {
@@ -214,7 +216,7 @@ async fn extraction_fails_over_and_shares_account_health() {
     let w = wrapped(&c, ProviderId::Tavily);
     assert!(w.providers[0].supports_extract());
     let docs = w.providers[0]
-        .extract(&["https://example.com".into()])
+        .extract(&["https://example.com".into()], None)
         .await
         .unwrap();
     assert_eq!(docs[0].content, "document");
@@ -430,3 +432,126 @@ fn every_keyed_provider_builds_an_independent_configured_adapter() {
         assert_eq!(w.health.snapshot().len(), 1);
     }
 }
+
+#[tokio::test]
+async fn pin_by_account_selects_named_credential_and_unknown_fails_closed() {
+    let server = MockServer::start().await;
+    Mock::given(path("/res/v1/web/search"))
+        .and(header("x-subscription-token", "work-secret"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(serde_json::json!({"web":{"results":[]}})),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(path("/res/v1/web/search"))
+        .and(header("x-subscription-token", "personal-secret"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(serde_json::json!({"web":{"results":[]}})),
+        )
+        .expect(0)
+        .mount(&server)
+        .await;
+    let mut c = config();
+    c.endpoints.brave = server.uri();
+    c.set_accounts_json(
+        r#"[{"provider":"brave","name":"work","credentials":{"api_key":"work-secret"}},{"provider":"brave","name":"personal","credentials":{"api_key":"personal-secret"}}]"#,
+    );
+    let w = wrapped(&c, ProviderId::Brave);
+    let mut pinned = request();
+    pinned.account = Some("work");
+    w.providers[0].search(&pinned).await.unwrap();
+    pinned.account = Some("missing");
+    assert!(matches!(
+        w.providers[0].search(&pinned).await,
+        Err(error::Error::Invalid(_))
+    ));
+    assert!(!w.providers[0].known_account("missing"));
+    assert!(w.providers[0].known_account("work"));
+}
+
+#[tokio::test]
+async fn firecrawl_map_uses_named_account_pool_not_legacy_keys() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v2/map"))
+        .and(header("authorization", "Bearer account-secret"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "links": ["https://example.com/a"]
+        })))
+        .expect(2)
+        .mount(&server)
+        .await;
+    let mut c = config();
+    c.endpoints.firecrawl = server.uri();
+    c.keys.firecrawl = vec!["legacy-must-not-be-used".into()];
+    c.set_accounts_json(
+        r#"[{"provider":"firecrawl","name":"work","credentials":{"api_key":"account-secret"}}]"#,
+    );
+    let w = wrapped(&c, ProviderId::Firecrawl);
+    let value = w.providers[0]
+        .map_urls("https://example.com", None, Some(5), Some("work"))
+        .await
+        .unwrap();
+    assert!(value.get("links").is_some());
+    // Accounts-only setups must work even when legacy keys are cleared.
+    c.keys.firecrawl.clear();
+    let w = wrapped(&c, ProviderId::Firecrawl);
+    w.providers[0]
+        .map_urls("https://example.com", None, Some(5), None)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn linkup_extract_and_depth_use_fetch_and_search_options() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/search"))
+        .and(header("authorization", "Bearer linkup-secret"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "results":[{"url":"https://example.com","name":"Example","content":"hi"}]
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v1/fetch"))
+        .and(header("authorization", "Bearer linkup-secret"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "markdown": "# hello"
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let mut c = config();
+    c.endpoints.linkup = server.uri();
+    c.set_accounts_json(
+        r#"[{"provider":"linkup","name":"work","credentials":{"api_key":"linkup-secret"}}]"#,
+    );
+    let w = wrapped(&c, ProviderId::Linkup);
+    assert!(w.providers[0].supports_extract());
+    let mut deep = request();
+    deep.depth = Some("deep");
+    let page = w.providers[0].search(&deep).await.unwrap();
+    assert_eq!(page.hits.len(), 1);
+    let search_body: serde_json::Value = serde_json::from_slice(
+        &server
+            .received_requests()
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|r| r.url.path() == "/v1/search")
+            .unwrap()
+            .body,
+    )
+    .unwrap();
+    assert_eq!(search_body["depth"], "deep");
+    assert_eq!(search_body["maxResults"], 10);
+    let docs = w.providers[0]
+        .extract(&["https://example.com".into()], Some("work"))
+        .await
+        .unwrap();
+    assert_eq!(docs[0].content, "# hello");
+}
+

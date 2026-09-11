@@ -55,7 +55,11 @@ impl Provider for YouCom {
         })
     }
 
-    async fn extract(&self, urls: &[String]) -> Result<Vec<ExtractedDoc>> {
+    async fn extract(
+        &self,
+        urls: &[String],
+        _account: Option<&str>,
+    ) -> Result<Vec<ExtractedDoc>> {
         crate::try_keys!(&self.inner.keys, "youcom", "YOU_API_KEY not set", |key| {
             self.extract_with(key, urls).await
         })

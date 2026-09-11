@@ -192,12 +192,46 @@ impl Provider for Firecrawl {
         )
     }
 
-    async fn extract(&self, urls: &[String]) -> Result<Vec<ExtractedDoc>> {
+    async fn extract(
+        &self,
+        urls: &[String],
+        _account: Option<&str>,
+    ) -> Result<Vec<ExtractedDoc>> {
         let mut out = Vec::new();
         for url in urls {
             out.push(self.scrape(url).await?);
         }
         Ok(out)
+    }
+
+    async fn crawl(
+        &self,
+        url: &str,
+        limit: u32,
+        timeout_secs: u64,
+        _account: Option<&str>,
+    ) -> Result<Value> {
+        crate::try_keys!(
+            self.keys(),
+            "firecrawl",
+            "FIRECRAWL_API_KEY not set",
+            |key| self.crawl_with(key, url, limit, timeout_secs).await,
+        )
+    }
+
+    async fn map_urls(
+        &self,
+        url: &str,
+        search: Option<&str>,
+        limit: Option<u32>,
+        _account: Option<&str>,
+    ) -> Result<Value> {
+        crate::try_keys!(
+            self.keys(),
+            "firecrawl",
+            "FIRECRAWL_API_KEY not set",
+            |key| self.map_with(key, url, search, limit).await,
+        )
     }
 }
 

@@ -110,6 +110,8 @@ pub async fn search(state: &AppState, request: SearchRequest) -> SearchResponse 
         &format!("{:?}", request.limit),
         &request.unlimited.to_string(),
         &format!("{:?}", request.ground_top),
+        &format!("{:?}", request.account),
+        &format!("{:?}", request.depth),
     ]);
     if !request.no_cache
         && let Some(mut cached) = state
@@ -427,6 +429,14 @@ async fn collect_provider(
     max_pages: usize,
     safety: usize,
 ) -> crate::error::Result<(Vec<SearchHit>, Option<String>)> {
+    if let Some(name) = request.account.as_deref()
+        && !provider.known_account(name)
+    {
+        return Err(Error::Invalid(format!(
+            "unknown account '{name}' for provider {}",
+            provider.id()
+        )));
+    }
     let mut hits = Vec::new();
     let mut cursor: Option<String> = None;
     let mut answer = None;
@@ -449,6 +459,8 @@ async fn collect_provider(
             freshness: request.freshness,
             country,
             language,
+            account: request.account.as_deref(),
+            depth: request.depth.as_deref(),
         };
         let page = provider.search(&page_req).await?;
         if answer.is_none() {
@@ -536,8 +548,22 @@ pub async fn extract(state: &AppState, request: ExtractRequest) -> ExtractRespon
             break;
         }
         let id = provider.id();
+        if let Some(name) = request.account.as_deref()
+            && !provider.known_account(name)
+        {
+            meta.failed.push(ProviderFailure {
+                provider: id.as_str().into(),
+                error: format!("unknown account '{name}' for provider {id}"),
+            });
+            continue;
+        }
         let call_started = Instant::now();
-        match tokio::time::timeout(timeout, provider.extract(&urls)).await {
+        match tokio::time::timeout(
+            timeout,
+            provider.extract(&urls, request.account.as_deref()),
+        )
+        .await
+        {
             Ok(Ok(docs)) if !docs.is_empty() => {
                 state.health.mark_success(id, call_started.elapsed());
                 meta.successful.push(id.as_str().into());
@@ -596,6 +622,7 @@ pub async fn research(
     budget_seconds: u64,
 ) -> ResearchResponse {
     request.include_quality_report = true;
+    let search_account = request.account.clone();
     let started = Instant::now();
     let search = search(state, request).await;
     let spent = started.elapsed().as_secs();
@@ -615,6 +642,7 @@ pub async fn research(
                 urls,
                 providers: None,
                 timeout_seconds: Some(remaining),
+                account: search_account,
             },
         )
         .await

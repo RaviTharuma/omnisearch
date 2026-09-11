@@ -170,7 +170,7 @@ Unconfigured engines are skipped. Wikipedia, Semantic Scholar, Bluesky, and Redd
 | Bluesky | none | yes | — | `app.bsky.feed.searchPosts` |
 | MCP backends | `OMNISEARCH_MCP_BACKENDS` | yes | — | `name|url|token,...` or `official` |
 
-`OMNISEARCH_MCP_BACKENDS=official` attaches remotes that have keys: Tavily, Exa, Firecrawl, Linkup, Kagi, Perplexity.
+`OMNISEARCH_MCP_BACKENDS=official` attaches remotes for every configured key (and named `OMNISEARCH_ACCOUNTS` api_key pools): Tavily, Exa, Firecrawl, Linkup, Kagi, Perplexity. Dual/triple env keys become `tavily` / `tavily_2` / … Named accounts become `tavily-work` style backend names and replace legacy keys for that provider. Brave remains native must-have fan-out, not an official remote.
 
 Social API limits: Instagram is hashtag-only (Meta caps unique hashtags 30 / 7 days). Facebook is Pages Search only. X prefers `X_BEARER_TOKEN` on `https://api.x.com/2/tweets/search/recent`.
 

@@ -29,6 +29,8 @@ fn req() -> ProviderSearchRequest<'static> {
         freshness: None,
         country: "US",
         language: "en",
+        account: None,
+        depth: None,
     }
 }
 fn connection(
