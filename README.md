@@ -52,7 +52,7 @@ Tagged releases provide native binaries for four targets:
 | macOS | Intel | `x86_64-apple-darwin` |
 | macOS | Apple Silicon | `aarch64-apple-darwin` |
 
-Download `omnisearch-v0.2.1-<target>.tar.gz` and `SHA256SUMS` from the GitHub Release.
+Download `omnisearch-v0.2.2-<target>.tar.gz` and `SHA256SUMS` from the GitHub Release.
 Verify the archive with `sha256sum --check --ignore-missing SHA256SUMS` on Linux,
 or `shasum -a 256 --check --ignore-missing SHA256SUMS` on macOS, then extract it
 and put `omnisearch` on your PATH. Archives include the binary, license, and README.
@@ -117,7 +117,7 @@ AUTH_TOKENS=replace-me OMNISEARCH_HTTP_BIND=127.0.0.1:48731 omnisearch http
 | `extract` / `web_extract` | Pull page text from extract vendors, then a safe direct fetch. |
 | `brave_search` `tavily_search` `exa_search` `linkup_search` `kagi_search` | Single-engine web search. |
 | `github_search` | Repos (`kind=repo`), code (`kind=code`), users (`kind=users`). |
-| `x_search` `reddit_search` `youtube_search` `instagram_search` `facebook_search` | Official social APIs. |
+| `x_search` `reddit_search` `discord_search` `youtube_search` `instagram_search` `facebook_search` | Official social APIs. |
 | `firecrawl_scrape` `firecrawl_crawl` `firecrawl_map` | Site scrape / crawl / map. |
 | `get_provider_info` | Configured, cost, requires_key, notes. No secrets. |
 | `search_health` | Cooldown, latency, recent errors. |
@@ -173,8 +173,9 @@ Unconfigured engines are skipped. Wikipedia, Semantic Scholar, Bluesky, and Redd
 | Querit | `QUERIT_API_KEY` | yes | yes | Multilingual filters |
 | TinyFish | `TINYFISH_API_KEY` | yes | — | Source-only |
 | Keenable | `KEENABLE_API_KEY` or `KEENABLE_PUBLIC=true` | yes | keyed | Public tier is keyless |
-| X | `X_BEARER_TOKEN` or `XAI_API_KEY` | yes | — | API v2 recent search, else xAI `x_search` |
-| Reddit | none, or OAuth pair | yes | — | `search.json`; OAuth when set |
+| X | `X_BEARER_TOKEN` or `XAI_API_KEY` | yes | — | API v2 recent search, else xAI `x_search`; multi-account via `OMNISEARCH_ACCOUNTS` |
+| Reddit | none, or OAuth pair | yes | — | `search.json`; OAuth when set; public `{}` or OAuth named accounts |
+| Discord | `DISCORD_BOT_TOKEN` + `DISCORD_GUILD_IDS` | yes | — | Guild message search only; optional `DISCORD_AUTH=bearer` |
 | YouTube | `YOUTUBE_API_KEY` or `GOOGLE_API_KEY` | yes | — | Data API v3 |
 | Instagram | Graph token + business account | hashtag | — | Official hashtag API only |
 | Facebook | `FACEBOOK_ACCESS_TOKEN` | pages | — | Official `/pages/search` only |
@@ -186,7 +187,7 @@ Unconfigured engines are skipped. Wikipedia, Semantic Scholar, Bluesky, and Redd
 
 `OMNISEARCH_MCP_BACKENDS=official` attaches remotes for every configured key (and named `OMNISEARCH_ACCOUNTS` api_key pools): Tavily, Exa, Firecrawl, Linkup, Kagi, Perplexity. Dual/triple env keys become `tavily` / `tavily_2` / … Named accounts become `tavily-work` style backend names and replace legacy keys for that provider. Brave remains native must-have fan-out, not an official remote.
 
-Social API limits: Instagram is hashtag-only (Meta caps unique hashtags 30 / 7 days). Facebook is Pages Search only. X prefers `X_BEARER_TOKEN` on `https://api.x.com/2/tweets/search/recent`.
+Social API limits: Instagram is hashtag-only (Meta caps unique hashtags 30 / 7 days). Facebook is Pages Search only. X prefers `X_BEARER_TOKEN` on `https://api.x.com/2/tweets/search/recent`. Discord has no public global search — configure guild IDs; Bot tokens are often rejected on Discord’s message search route (use a user bearer or expect the provider to fail/skip).
 
 ## How it works
 

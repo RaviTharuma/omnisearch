@@ -1,8 +1,16 @@
 # Changelog
 
+<<<<<<< HEAD
+## 0.2.2
+
+- Discord guild message search (`discord_search`) with `DISCORD_BOT_TOKEN` + `DISCORD_GUILD_IDS` and named `OMNISEARCH_ACCOUNTS` (`token` + `guild_ids`, optional `bearer`).
+- Reddit named `Public {}` accounts (docs/code aligned); X/Reddit/Discord multi-account tests and account-pin tool notes.
+- Auto intent routes `twitter`, `x.com`, and `discord` into the social provider set.
+=======
 ## Unreleased
 
 - Community health docs: disclaimer, contributing, security policy, code of conduct, support, governance, NOTICE, issue/PR templates, and issue-reporting guide.
+>>>>>>> origin/main
 
 ## 0.2.1
 

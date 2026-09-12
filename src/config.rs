@@ -61,6 +61,10 @@ pub struct ProviderKeys {
     pub xai: Vec<String>,
     pub reddit_client_id: Option<String>,
     pub reddit_client_secret: Option<String>,
+    pub discord_token: Option<String>,
+    pub discord_guild_ids: Vec<String>,
+    /// When true, Discord uses `Authorization: Bearer` instead of `Bot`.
+    pub discord_bearer: bool,
     pub youtube: Vec<String>,
     pub instagram_token: Vec<String>,
     pub instagram_user_id: Option<String>,
@@ -101,6 +105,13 @@ pub enum AccountCredentials {
     Reddit {
         client_id: String,
         client_secret: String,
+    },
+    Discord {
+        token: String,
+        guild_ids: Vec<String>,
+        /// When true, send Bearer auth (user token). Default Bot.
+        #[serde(default)]
+        bearer: bool,
     },
     Instagram {
         token: String,
@@ -189,6 +200,23 @@ impl ProviderAccount {
                 keys.reddit_client_id = Some(client_id.clone());
                 keys.reddit_client_secret = Some(client_secret.clone());
             }
+            (
+                P::Discord,
+                C::Discord {
+                    token,
+                    guild_ids,
+                    bearer,
+                },
+            ) if nonempty(token)
+                && !guild_ids.is_empty()
+                && guild_ids
+                    .iter()
+                    .all(|id| !id.trim().is_empty() && id.bytes().all(|b| b.is_ascii_digit())) =>
+            {
+                keys.discord_token = Some(token.clone());
+                keys.discord_guild_ids = guild_ids.clone();
+                keys.discord_bearer = *bearer;
+            }
             (P::Instagram, C::Instagram { token, user_id })
                 if nonempty(token) && nonempty(user_id) =>
             {
@@ -229,8 +257,8 @@ impl ProviderAccount {
                     token: token.clone(),
                 });
             }
-            // Existing Bluesky adapter is public; do not silently accept unused secrets.
-            (P::Wikipedia | P::Scholar | P::Bluesky, C::Public {}) => {}
+            // Public adapters need no secrets; Reddit public search uses {}.
+            (P::Wikipedia | P::Scholar | P::Bluesky | P::Reddit, C::Public {}) => {}
             _ => return Err(invalid()),
         }
         config.keys = keys;
@@ -314,6 +342,7 @@ pub struct Endpoints {
     pub xai: String,
     pub reddit: String,
     pub reddit_oauth: String,
+    pub discord: String,
     pub youtube: String,
     pub meta_graph: String,
     pub youcom: String,
@@ -341,6 +370,7 @@ impl Default for Endpoints {
             xai: "https://api.x.ai".into(),
             reddit: "https://www.reddit.com".into(),
             reddit_oauth: "https://oauth.reddit.com".into(),
+            discord: "https://discord.com/api/v10".into(),
             youtube: "https://www.googleapis.com".into(),
             meta_graph: "https://graph.facebook.com/v22.0".into(),
             youcom: "https://ydc-index.io".into(),
@@ -378,6 +408,7 @@ impl Config {
             xai: env_or("XAI_BASE_URL", "https://api.x.ai"),
             reddit: env_or("REDDIT_BASE_URL", "https://www.reddit.com"),
             reddit_oauth: env_or("REDDIT_OAUTH_BASE_URL", "https://oauth.reddit.com"),
+            discord: env_or("DISCORD_API_BASE_URL", "https://discord.com/api/v10"),
             youtube: env_or("YOUTUBE_BASE_URL", "https://www.googleapis.com"),
             meta_graph: env_or("META_GRAPH_BASE_URL", "https://graph.facebook.com/v22.0"),
             youcom: env_or("YOU_BASE_URL", "https://ydc-index.io"),
@@ -445,6 +476,20 @@ impl Config {
                 reddit_client_secret: env::var("REDDIT_CLIENT_SECRET")
                     .ok()
                     .filter(|s| !s.is_empty()),
+                discord_token: env::var("DISCORD_BOT_TOKEN")
+                    .ok()
+                    .filter(|s| !s.is_empty())
+                    .or_else(|| env::var("DISCORD_TOKEN").ok().filter(|s| !s.is_empty())),
+                discord_guild_ids: split_csv(env::var("DISCORD_GUILD_IDS").ok()),
+                discord_bearer: matches!(
+                    env::var("DISCORD_AUTH")
+                        .ok()
+                        .as_deref()
+                        .map(str::trim)
+                        .map(str::to_ascii_lowercase)
+                        .as_deref(),
+                    Some("bearer") | Some("user")
+                ),
                 youtube: env_key_rings(&["YOUTUBE_API_KEY", "GOOGLE_API_KEY"]),
                 instagram_token: env_key_rings(&["INSTAGRAM_ACCESS_TOKEN", "META_ACCESS_TOKEN"]),
                 instagram_user_id: env::var("INSTAGRAM_BUSINESS_ACCOUNT_ID")

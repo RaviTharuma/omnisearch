@@ -78,6 +78,9 @@ fn intent_subset(query: &str, vertical: SearchType, configured: &[ProviderId]) -
     } else if matches!(vertical, SearchType::Social)
         || q.contains("reddit")
         || q.contains("tweet")
+        || q.contains("twitter")
+        || q.contains("x.com")
+        || q.contains("discord")
         || q.contains("instagram")
         || q.contains("mastodon")
         || q.contains("bluesky")
@@ -104,6 +107,7 @@ fn intent_subset(query: &str, vertical: SearchType, configured: &[ProviderId]) -
         SearchType::Social => want.extend([
             ProviderId::Reddit,
             ProviderId::X,
+            ProviderId::Discord,
             ProviderId::Youtube,
             ProviderId::Instagram,
             ProviderId::Facebook,
@@ -168,6 +172,33 @@ mod tests {
         );
         for id in ProviderId::must_have() {
             assert!(ProviderId::all().contains(id));
+        }
+    }
+
+    #[test]
+    fn auto_routes_social_keywords_including_discord_and_twitter() {
+        let health = HealthBoard::new();
+        let configured = vec![
+            ProviderId::Reddit,
+            ProviderId::X,
+            ProviderId::Discord,
+            ProviderId::Tavily,
+        ];
+        for query in [
+            "twitter api rate limits",
+            "x.com launch",
+            "discord rust bots",
+        ] {
+            let mut req = SearchRequest::new(query);
+            req.mode = SearchMode::Auto;
+            let selected = select_providers(&req, &configured, &health, false);
+            assert!(
+                selected.contains(&ProviderId::X)
+                    || selected.contains(&ProviderId::Discord)
+                    || selected.contains(&ProviderId::Reddit),
+                "query={query} selected={selected:?}"
+            );
+            assert!(!selected.contains(&ProviderId::Tavily));
         }
     }
 
