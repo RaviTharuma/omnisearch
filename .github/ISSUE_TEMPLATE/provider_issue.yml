@@ -1,0 +1,87 @@
+name: Provider / integration
+description: Bug or gap in a specific search, social, extract, or gateway adapter
+title: "provider: "
+labels: ["provider"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For named accounts and OmniRoute gateways, see [docs/accounts-and-gateways.md](https://github.com/RaviTharuma/omnisearch/blob/main/docs/accounts-and-gateways.md).
+        **Never paste API keys or tokens.**
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Provider or integration
+      options:
+        - Brave
+        - GitHub
+        - Tavily
+        - Exa
+        - Firecrawl
+        - Linkup
+        - Kagi
+        - Perplexity
+        - You.com
+        - Parallel.ai
+        - Querit
+        - TinyFish
+        - Keenable
+        - X / xAI
+        - Reddit
+        - YouTube
+        - Instagram
+        - Facebook
+        - Wikipedia
+        - Semantic Scholar
+        - Mastodon
+        - Bluesky
+        - OmniRoute gateway
+        - MCP backend (OMNISEARCH_MCP_BACKENDS)
+        - Other / multiple
+    validations:
+      required: true
+  - type: dropdown
+    id: auth_mode
+    attributes:
+      label: Credential mode
+      options:
+        - Legacy single env key
+        - Dual/triple keys (_2 / _3)
+        - Named OMNISEARCH_ACCOUNTS
+        - Gateway-only credentials
+        - Keyless / public
+        - Unsure
+    validations:
+      required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: What goes wrong?
+      description: Include HTTP status and sanitized vendor error text when available.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: Tool call, query, account pin (name only), and steps.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: omnisearch version
+      placeholder: "0.2.1"
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: Secrets are redacted
+          required: true
+        - label: I checked the provider dashboard for quota / auth errors when applicable
+          required: false
+        - label: I read DISCLAIMER.md (third-party APIs are outside maintainer control)
+          required: true

@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/RaviTharuma/omnisearch/security/advisories/new
+    about: Report security issues privately — do not file a public issue with exploit details.
+  - name: Documentation and support guide
+    url: https://github.com/RaviTharuma/omnisearch/blob/main/SUPPORT.md
+    about: Read SUPPORT.md and the README before asking configuration questions.
+  - name: Disclaimer and third-party APIs
+    url: https://github.com/RaviTharuma/omnisearch/blob/main/DISCLAIMER.md
+    about: Warranty, affiliation, cost, and compliance limits for this project.

@@ -1,0 +1,76 @@
+name: Bug report
+description: Unexpected behavior, crashes, incorrect results, MCP/HTTP issues
+title: "bug: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug. **Redact all API keys and tokens.** Read [docs/reporting-issues.md](https://github.com/RaviTharuma/omnisearch/blob/main/docs/reporting-issues.md) first.
+        Security issues go to [SECURITY.md](https://github.com/RaviTharuma/omnisearch/blob/main/SECURITY.md), not here.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: One or two sentences describing the problem.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: omnisearch version
+      description: Tag, Cargo.toml version, or commit SHA.
+      placeholder: "0.2.1 / abcdef1"
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: OS / architecture / client
+      description: e.g. Linux x86_64, Cursor MCP, Claude Desktop, omnisearch http
+      placeholder: "macOS arm64 · Cursor"
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal numbered steps. Include tool name and non-secret arguments.
+      placeholder: |
+        1. Configure BRAVE_API_KEY only
+        2. Call search with query "…"
+        3. Observe …
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include sanitized logs or error messages.
+    validations:
+      required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: Relevant configuration
+      description: Provider names and env var *names* only. No secret values. Named accounts? HTTP bind?
+      render: markdown
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues for duplicates
+          required: true
+        - label: I redacted all secrets from this report
+          required: true
+        - label: This is not a security vulnerability (those use SECURITY.md)
+          required: true
