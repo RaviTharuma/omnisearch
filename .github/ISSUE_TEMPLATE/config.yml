@@ -6,6 +6,6 @@ contact_links:
   - name: Documentation and support guide
     url: https://github.com/RaviTharuma/omnisearch/blob/main/SUPPORT.md
     about: Read SUPPORT.md and the README before asking configuration questions.
-  - name: Disclaimer and third-party APIs
+  - name: Disclaimer and assumption of risk
     url: https://github.com/RaviTharuma/omnisearch/blob/main/DISCLAIMER.md
-    about: Warranty, affiliation, cost, and compliance limits for this project.
+    about: No warranties; $0 liability; you assume supply-chain, API spend, and contribution risk.

@@ -10,14 +10,16 @@ See [named accounts and OmniRoute gateways](docs/accounts-and-gateways.md) for m
 - **Research mode.** Search first, then read the top pages so answers can cite real sources.
 - **Drop-in for Claude Desktop and Cursor.** Point the client at the `omnisearch` binary and start searching.
 
-Apache-2.0. Copyright 2026 Ravi Tharuma. See [DISCLAIMER.md](DISCLAIMER.md) — no affiliation with third-party search vendors; you are responsible for API keys, ToS, and cost.
+Apache-2.0. Copyright 2026 Ravi Tharuma.
+
+**Use at your own risk.** See [DISCLAIMER.md](DISCLAIMER.md): no warranties; you assume supply-chain risk, API/credit overusage, and harm from bugs or merged contributions; Project Parties’ aggregate liability is **$0**. No affiliation with third-party search vendors. You alone control keys, ToS compliance, and spend.
 
 ## Community
 
 | Doc | Purpose |
 | --- | --- |
-| [DISCLAIMER.md](DISCLAIMER.md) | Warranty, affiliation, privacy, cost, liability |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | Dev setup, PR rules, contribution license |
+| [DISCLAIMER.md](DISCLAIMER.md) | Assumption of risk, $0 liability, supply chain, spend, indemnity |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Dev setup, DCO, contributor warranties, PR rules |
 | [docs/reporting-issues.md](docs/reporting-issues.md) | What to include (and redact) in issues |
 | [SUPPORT.md](SUPPORT.md) | Where to get help |
 | [SECURITY.md](SECURITY.md) | Private vulnerability reporting |

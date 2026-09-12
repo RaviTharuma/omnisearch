@@ -1,6 +1,8 @@
 # Reporting issues
 
-Use this checklist so maintainers can reproduce and fix problems quickly.
+Filing an issue does **not** create a warranty, SLA, or liability for Project Parties. You still assume all risk under [DISCLAIMER.md](../DISCLAIMER.md), including API spend and supply-chain events.
+
+Use this checklist so maintainers can reproduce and fix problems quickly (best-effort).
 
 ## Choose the right template
 
@@ -9,7 +11,8 @@ Use this checklist so maintainers can reproduce and fix problems quickly.
 | Crash, wrong results, MCP/HTTP bug | Bug report |
 | New tool, flag, or behavior | Feature request |
 | One provider, named account, or gateway | Provider / integration |
-| Credential leak, auth bypass, SSRF | **Do not file publicly** — [SECURITY.md](../SECURITY.md) |
+| Credential leak, auth bypass, SSRF, supply chain | **Do not file publicly** — [SECURITY.md](../SECURITY.md) |
+| Vendor invoice / credit burn | Your provider billing dashboard — not an omnisearch bug |
 
 ## Always include
 
