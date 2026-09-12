@@ -1,5 +1,9 @@
 # omnisearch
 
+> **Free open-source software. Use entirely at your own risk.**  
+> No warranties. No support contract. **$0** liability cap. You alone own API keys, credit burn, supply-chain risk, and anything that lands in a merged PR.  
+> Full terms: **[DISCLAIMER.md](DISCLAIMER.md)** (required reading). Apache-2.0 — [LICENSE](LICENSE).
+
 See [named accounts and OmniRoute gateways](docs/accounts-and-gateways.md) for multiple accounts, gateway-only credentials, supported authentication and health.
 
 **Search MCP** — parallel search across many engines so your AI finds what a single search usually misses.
@@ -10,9 +14,7 @@ See [named accounts and OmniRoute gateways](docs/accounts-and-gateways.md) for m
 - **Research mode.** Search first, then read the top pages so answers can cite real sources.
 - **Drop-in for Claude Desktop and Cursor.** Point the client at the `omnisearch` binary and start searching.
 
-Apache-2.0. Copyright 2026 Ravi Tharuma.
-
-**Use at your own risk.** See [DISCLAIMER.md](DISCLAIMER.md): no warranties; you assume supply-chain risk, API/credit overusage, and harm from bugs or merged contributions; Project Parties’ aggregate liability is **$0**. No affiliation with third-party search vendors. You alone control keys, ToS compliance, and spend.
+Apache-2.0. Copyright 2026 Ravi Tharuma. This is **gratuitous** software (typically **$0** to the authors) — not a paid product. See [DISCLAIMER.md](DISCLAIMER.md) §0 and §5.
 
 ## Community
 

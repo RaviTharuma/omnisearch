@@ -2,11 +2,21 @@
 
 **READ THIS BEFORE USING, BUILDING, DISTRIBUTING, OR CONTRIBUTING TO OMNISEARCH.**
 
-omnisearch is an independent open-source project provided solely for convenience. It is **not** a product, service, professional engagement, escrow, audit, insurance policy, or warranty of any kind.
+omnisearch is an independent open-source project provided solely for convenience. It is **not** a product, service, professional engagement, escrow, audit, insurance policy, marketplace listing, or warranty of any kind.
 
 By cloning, downloading, building, running, configuring, embedding, redistributing, or otherwise using this software (or any fork, binary, container, or derivative), **you accept this document in full**, together with the [Apache License 2.0](LICENSE), [NOTICE](NOTICE), [CONTRIBUTING.md](CONTRIBUTING.md) (if you contribute), and [SECURITY.md](SECURITY.md).
 
-If you do not agree, **do not use the software**.
+If you do not agree, **do not use the software**. Uninstall it, delete copies, and do not open issues demanding fixes, refunds, or damages.
+
+---
+
+## 0. Free / gratuitous software — no paid bargain with maintainers
+
+- This software is offered under a **free** open-source license. You typically pay **$0** to the copyright holder and other Project Parties for the software itself.
+- Publication of source code on GitHub (or elsewhere) is a **gratuitous courtesy**, not a sale, not a consumer transaction, not a SaaS subscription, and not an invitation to treat Project Parties as a vendor of paid goods or services.
+- Opening an issue, starring the repo, or receiving a merge **does not** create a support contract, paid engagement, or duty of care.
+- **You may not claim** that Project Parties “sold,” “supplied as a product,” or “guaranteed” this code to you in exchange for money paid to them for the software (again: typically **$0**).
+- If you need warranties, SLAs, indemnities from a vendor, insurance, or certified secure software — **buy that from a commercial vendor**. Do not use omnisearch for that purpose.
 
 ---
 
@@ -53,6 +63,8 @@ This section supplements — and does not narrow — Section 7 (Disclaimer of Wa
 - **You must treat every release and every commit as untrusted until you personally (or your security process) has reviewed it**
 
 Project Parties have **zero responsibility** for harm from merged contributor code, whether or not a maintainer “should have caught it.”
+
+**You expressly waive** claims against Project Parties based on: failure to review a PR; inadequate review; trusting CI; trusting a contributor; merging too quickly; or “negligent maintainership” related to contribution handling — to the maximum extent permitted by law (including where such claims would otherwise be framed as negligence or gross negligence, except only where mandatory law makes that waiver void).
 
 ### 3.3 API keys, credits, quotas, and overusage
 
@@ -122,7 +134,25 @@ Submitting a contribution is **acceptance** of [CONTRIBUTING.md](CONTRIBUTING.md
 
 ## 8. No reliance; no professional relationship
 
-You must not rely on Project Parties’ silence, merges, stars, CI status, or docs as a security assurance. Nothing here creates a fiduciary, advisory, or professional-services relationship.
+You must not rely on Project Parties’ silence, merges, stars, CI status, or docs as a security assurance. Nothing here creates a fiduciary, advisory, employment, joint venture, or professional-services relationship.
+
+**No third-party beneficiaries** except that every Project Party may enforce this disclaimer and the Apache-2.0 limitations. Your customers, employers, and end users have **no** direct claim against Project Parties arising from your use of omnisearch; you alone stand between them and this software (see §6).
+
+---
+
+## 8A. Claims you agree not to bring
+
+To the maximum extent permitted by law, you agree **not** to bring (and you waive) claims against Project Parties for:
+
+- Free software “should have been safer / reviewed better”
+- Damages after you ran code you did not personally review
+- API bills, credit burn, or vendor bans of any amount
+- Supply-chain compromise of dependencies or CI
+- Harm from a contribution a maintainer merged
+- Lack of support, delayed security response, or ignored issues
+- Reliance on README examples, defaults, or sample configs
+
+Bring disputes only as allowed by mandatory law that cannot be waived — and even then, subject to the **$0** aggregate cap in §5 where enforceable.
 
 ---
 

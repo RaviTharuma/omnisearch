@@ -9,7 +9,7 @@ omnisearch is maintained by **Ravi Tharuma** and volunteer contributors.
 | Maintainer | Merge rights, releases, security response, roadmap priorities — all **best-effort**, no SLA |
 | Contributor | Issues, PRs, docs, and reviews under [CONTRIBUTING.md](CONTRIBUTING.md) and [DISCLAIMER.md](DISCLAIMER.md) §7 |
 
-**Important:** Maintainership does **not** create a duty to audit every line, dependency, or workflow; does **not** create liability for merged PRs; and does **not** create liability for user API spend or supply-chain events. See [DISCLAIMER.md](DISCLAIMER.md).
+**Important:** Maintainership does **not** create a duty to audit every line, dependency, or workflow; does **not** create liability for merged PRs; does **not** create liability for user API spend or supply-chain events; and does **not** turn free GitHub hosting of this repo into a consumer product or paid support offering. Publishing code is a courtesy under Apache-2.0. See [DISCLAIMER.md](DISCLAIMER.md) §§0–5 and §8A.
 
 ## Decision making
 
