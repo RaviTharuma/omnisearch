@@ -254,7 +254,9 @@ impl OmniServer {
     }
 
     /// X/Twitter search.
-    #[tool(description = "Search X.com via X API v2 or xAI x_search.")]
+    #[tool(
+        description = "Search X.com via X API v2 or xAI x_search. Optional account pin for named X credentials."
+    )]
     pub async fn x_search(
         &self,
         Parameters(params): Parameters<QueryParams>,
@@ -263,12 +265,25 @@ impl OmniServer {
     }
 
     /// Reddit search.
-    #[tool(description = "Search Reddit via search.json or OAuth.")]
+    #[tool(
+        description = "Search Reddit via search.json or OAuth. Optional account pin for named Reddit credentials."
+    )]
     pub async fn reddit_search(
         &self,
         Parameters(params): Parameters<QueryParams>,
     ) -> Result<Json<Value>, ErrorData> {
         self.one(ProviderId::Reddit, params).await
+    }
+
+    /// Discord guild message search.
+    #[tool(
+        description = "Search Discord guild messages (DISCORD_BOT_TOKEN + DISCORD_GUILD_IDS). Optional account pin. No public global Discord search."
+    )]
+    pub async fn discord_search(
+        &self,
+        Parameters(params): Parameters<QueryParams>,
+    ) -> Result<Json<Value>, ErrorData> {
+        self.one(ProviderId::Discord, params).await
     }
 
     /// YouTube search.
@@ -582,7 +597,7 @@ impl ServerHandler for OmniServer {
                 env!("CARGO_PKG_VERSION"),
             ))
             .with_instructions(
-                "Parallel multi-provider search MCP. Default search fans out to every configured engine (Brave and GitHub are first-class when keyed), then RRF-merges with URL/title dedupe and sources[] provenance. limit is a soft hint; omit it for unlimited pagination up to the 10k safety bound. Budgets cap spend/providers/time, not result count. github_search supports repo, code, and users. Social: YouTube (Data API), Instagram (hashtag Graph API), Facebook (pages/search only), X, Reddit, Mastodon, Bluesky.",
+                "Parallel multi-provider search MCP. Default search fans out to every configured engine (Brave and GitHub are first-class when keyed), then RRF-merges with URL/title dedupe and sources[] provenance. limit is a soft hint; omit it for unlimited pagination up to the 10k safety bound. Budgets cap spend/providers/time, not result count. github_search supports repo, code, and users. Social: YouTube (Data API), Instagram (hashtag Graph API), Facebook (pages/search only), X, Reddit, Discord (guild message search), Mastodon, Bluesky.",
             )
     }
 }

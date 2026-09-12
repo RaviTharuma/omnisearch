@@ -142,6 +142,15 @@ fn supports_special_and_public_providers_without_credential_mixing() {
             "reddit",
             serde_json::json!({"client_id":"id", "client_secret":"secret"}),
         ),
+        ("reddit", serde_json::json!({})),
+        (
+            "discord",
+            serde_json::json!({"token":"bot-secret", "guild_ids":["123456789012345678"]}),
+        ),
+        (
+            "discord",
+            serde_json::json!({"token":"user-secret", "guild_ids":["123456789012345678"], "bearer":true}),
+        ),
         (
             "instagram",
             serde_json::json!({"token":"secret", "user_id":"id"}),
@@ -197,6 +206,144 @@ fn named_mcp_is_added_when_legacy_registry_has_no_backend() {
     let w = wrap_providers(Vec::new(), &c, HttpClient::new(&c).unwrap()).unwrap();
     assert_eq!(w.providers.len(), 1);
     assert_eq!(w.providers[0].id(), ProviderId::McpBackend);
+}
+
+#[tokio::test]
+async fn discord_named_accounts_rotate_and_pin() {
+    use wiremock::matchers::{header, query_param};
+    let server = MockServer::start().await;
+    for (token, guild, auth, expected) in [
+        ("bot-one", "111111111111111111", "Bot bot-one", 1u64),
+        ("bot-two", "222222222222222222", "Bot bot-two", 2u64),
+    ] {
+        Mock::given(path(format!("/guilds/{guild}/messages/search")))
+            .and(header("authorization", auth))
+            .and(query_param("content", "test"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "total_results": 1,
+                "messages": [[{
+                    "id": "999",
+                    "channel_id": "555",
+                    "content": format!("hit from {token}"),
+                    "timestamp": "2026-01-01T00:00:00.000000+00:00",
+                    "hit": true
+                }]]
+            })))
+            .expect(expected)
+            .mount(&server)
+            .await;
+    }
+    let mut c = config();
+    c.endpoints.discord = server.uri();
+    c.set_accounts_json(
+        r#"[
+        {"provider":"discord","name":"one","credentials":{"token":"bot-one","guild_ids":["111111111111111111"]}},
+        {"provider":"discord","name":"two","credentials":{"token":"bot-two","guild_ids":["222222222222222222"]}}
+    ]"#,
+    );
+    let w = wrapped(&c, ProviderId::Discord);
+    w.providers[0].search(&request()).await.unwrap();
+    w.providers[0].search(&request()).await.unwrap();
+    assert!(w.health.snapshot().iter().all(|a| a.success_count == 1));
+    let mut pinned = request();
+    pinned.account = Some("two");
+    let page = w.providers[0].search(&pinned).await.unwrap();
+    assert!(page.hits[0].snippet.contains("bot-two"));
+    assert_eq!(
+        w.health
+            .snapshot()
+            .iter()
+            .find(|a| a.name == "two")
+            .unwrap()
+            .success_count,
+        2
+    );
+}
+
+#[tokio::test]
+async fn x_bearer_accounts_failover_and_pin() {
+    use wiremock::matchers::header;
+    let server = MockServer::start().await;
+    Mock::given(path("/2/tweets/search/recent"))
+        .and(header("authorization", "Bearer bad-x"))
+        .respond_with(ResponseTemplate::new(429).set_body_string("slow"))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(path("/2/tweets/search/recent"))
+        .and(header("authorization", "Bearer good-x"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": [{"id":"1","text":"hello from x"}],
+            "meta": {}
+        })))
+        .expect(2)
+        .mount(&server)
+        .await;
+    let mut c = config();
+    c.endpoints.x = server.uri();
+    c.cooldown_secs = 60;
+    c.set_accounts_json(
+        r#"[
+        {"provider":"x","name":"bad","credentials":{"bearer_token":"bad-x"}},
+        {"provider":"x","name":"good","credentials":{"bearer_token":"good-x"}}
+    ]"#,
+    );
+    let w = wrapped(&c, ProviderId::X);
+    let page = w.providers[0].search(&request()).await.unwrap();
+    assert_eq!(page.hits.len(), 1);
+    let mut pinned = request();
+    pinned.account = Some("good");
+    w.providers[0].search(&pinned).await.unwrap();
+    let snapshots = w.health.snapshot();
+    assert_eq!(
+        snapshots
+            .iter()
+            .find(|s| s.name == "bad")
+            .unwrap()
+            .failure_count,
+        1
+    );
+    assert_eq!(
+        snapshots
+            .iter()
+            .find(|s| s.name == "good")
+            .unwrap()
+            .success_count,
+        2
+    );
+}
+
+#[tokio::test]
+async fn reddit_public_accounts_are_configured_without_oauth() {
+    let server = MockServer::start().await;
+    Mock::given(path("/search.json"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(serde_json::json!({"data":{"children":[]}})),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let mut c = config();
+    c.endpoints.reddit = server.uri();
+    c.endpoints.reddit_oauth = server.uri();
+    c.set_accounts_json(r#"[{"provider":"reddit","name":"public","credentials":{}}]"#);
+    let w = wrapped(&c, ProviderId::Reddit);
+    assert!(w.providers[0].is_configured());
+    w.providers[0].search(&request()).await.unwrap();
+    assert_eq!(w.health.snapshot()[0].success_count, 1);
+}
+
+#[test]
+fn rejects_discord_accounts_without_guild_ids() {
+    let mut c = config();
+    c.set_accounts_json(
+        r#"[{"provider":"discord","name":"work","credentials":{"token":"secret"}}]"#,
+    );
+    assert!(c.validate_accounts().is_err());
+    c.set_accounts_json(
+        r#"[{"provider":"discord","name":"work","credentials":{"token":"secret","guild_ids":["not-a-snowflake"]}}]"#,
+    );
+    assert!(c.validate_accounts().is_err());
 }
 
 #[tokio::test]

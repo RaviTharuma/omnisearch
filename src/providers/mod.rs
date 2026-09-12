@@ -2,6 +2,7 @@
 
 mod bluesky;
 mod brave;
+mod discord;
 mod exa;
 mod facebook;
 pub mod firecrawl;
@@ -137,6 +138,7 @@ impl Registry {
             Arc::new(github::Github::new(config, http.clone())),
             Arc::new(reddit::Reddit::new(config, http.clone())),
             Arc::new(xsearch::XSearch::new(config, http.clone())),
+            Arc::new(discord::Discord::new(config, http.clone())),
             Arc::new(youtube::Youtube::new(config, http.clone())),
             Arc::new(instagram::Instagram::new(config, http.clone())),
             Arc::new(facebook::Facebook::new(config, http.clone())),
