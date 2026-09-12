@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Hardened disclaimer: supply-chain assumption of risk, API credit overusage, malicious/mistaken merges, user indemnification, contributor warranties/DCO, and $0 liability cap language.
+- Disclaimer audit: gratuitous/free-software framing (§0), explicit waiver of “should have reviewed PR” claims (§8A), stronger README banner.
 
 ## 0.2.2
 
