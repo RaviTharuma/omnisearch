@@ -1,0 +1,14 @@
+# NOTICE
+
+omnisearch
+Copyright 2026 Ravi Tharuma
+
+This product includes software developed at omnisearch
+(https://github.com/RaviTharuma/omnisearch).
+
+Licensed under the Apache License, Version 2.0.
+See the LICENSE file for the full license text.
+
+Third-party search, social, extract, and related APIs that omnisearch may call
+are operated by their respective providers. This project is not affiliated with
+those providers. See DISCLAIMER.md.

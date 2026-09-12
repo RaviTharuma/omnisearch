@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Community health docs: disclaimer, contributing, security policy, code of conduct, support, governance, NOTICE, issue/PR templates, and issue-reporting guide.
+
 ## 0.2.1
 
 - Firecrawl crawl/map route through named-account pools (accounts-only configs work).
