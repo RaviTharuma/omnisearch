@@ -10,7 +10,21 @@ See [named accounts and OmniRoute gateways](docs/accounts-and-gateways.md) for m
 - **Research mode.** Search first, then read the top pages so answers can cite real sources.
 - **Drop-in for Claude Desktop and Cursor.** Point the client at the `omnisearch` binary and start searching.
 
-Apache-2.0. Copyright 2026 Ravi Tharuma.
+Apache-2.0. Copyright 2026 Ravi Tharuma. See [DISCLAIMER.md](DISCLAIMER.md) — no affiliation with third-party search vendors; you are responsible for API keys, ToS, and cost.
+
+## Community
+
+| Doc | Purpose |
+| --- | --- |
+| [DISCLAIMER.md](DISCLAIMER.md) | Warranty, affiliation, privacy, cost, liability |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Dev setup, PR rules, contribution license |
+| [docs/reporting-issues.md](docs/reporting-issues.md) | What to include (and redact) in issues |
+| [SUPPORT.md](SUPPORT.md) | Where to get help |
+| [SECURITY.md](SECURITY.md) | Private vulnerability reporting |
+| [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Community standards |
+| [GOVERNANCE.md](GOVERNANCE.md) | Maintainership and releases |
+| [CHANGELOG.md](CHANGELOG.md) | User-visible changes |
+| [NOTICE](NOTICE) | Apache NOTICE |
 
 ## Get started
 
