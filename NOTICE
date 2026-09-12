@@ -9,6 +9,12 @@ This product includes software developed at omnisearch
 Licensed under the Apache License, Version 2.0.
 See the LICENSE file for the full license text.
 
+THIS SOFTWARE IS PROVIDED WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND.
+Users assume all risk, including supply-chain compromise, API credit
+overusage, and defects or malice in dependencies or contributions.
+See DISCLAIMER.md for the full assumption of risk and limitation of
+liability. See CONTRIBUTING.md for contributor warranties.
+
 Third-party search, social, extract, and related APIs that omnisearch may call
 are operated by their respective providers. This project is not affiliated with
-those providers. See DISCLAIMER.md.
+those providers.
